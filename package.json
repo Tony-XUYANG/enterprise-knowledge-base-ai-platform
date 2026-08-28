@@ -1,0 +1,17 @@
+{
+  "name": "knowledgehub",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace @knowledgehub/api",
+    "dev:web": "npm run dev --workspace @knowledgehub/web",
+    "build:api": "npm run build --workspace @knowledgehub/api",
+    "build:web": "npm run build --workspace @knowledgehub/web",
+    "test:api": "npm run test --workspace @knowledgehub/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:migrate": "npm run db:migrate --workspace @knowledgehub/api"
+  }
+}

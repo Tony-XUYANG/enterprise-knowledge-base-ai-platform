@@ -1,0 +1,241 @@
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  roles: string[];
+}
+
+export interface SessionSummary {
+  activeSessions: number;
+  lastLoginAt: string | null;
+}
+
+export type AppStatus = 'draft' | 'active' | 'disabled';
+
+export interface AiApp {
+  id: string;
+  ownerId: string;
+  name: string;
+  description: string | null;
+  fastgptAppId: string | null;
+  hasFastgptApiKey: boolean;
+  settings: Record<string, unknown>;
+  status: AppStatus;
+  attachedKnowledgeBaseCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppList {
+  items: AiApp[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface AppStats {
+  total: number;
+  active: number;
+  draft: number;
+  disabled: number;
+  knowledgeBaseBindings: number;
+}
+
+export type KnowledgeBaseStatus = 'pending' | 'ready' | 'failed' | 'disabled';
+
+export interface KnowledgeBase {
+  id: string;
+  ownerId: string;
+  name: string;
+  description: string | null;
+  fastgptDatasetId: string | null;
+  status: KnowledgeBaseStatus;
+  metadata: Record<string, unknown>;
+  attachedAppCount: number;
+  documentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type KnowledgeDocumentStatus = 'pending' | 'processing' | 'ready' | 'failed' | 'disabled';
+export type KnowledgeDocumentSourceType = 'file' | 'url' | 'text';
+
+export interface KnowledgeDocument {
+  id: string;
+  knowledgeBaseId: string;
+  ownerId: string;
+  name: string;
+  sourceType: KnowledgeDocumentSourceType;
+  sourceUri: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  checksumSha256: string | null;
+  fastgptCollectionId: string | null;
+  status: KnowledgeDocumentStatus;
+  chunkCount: number;
+  errorMessage: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocumentList {
+  items: KnowledgeDocument[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface KnowledgeDocumentStats {
+  total: number;
+  ready: number;
+  processing: number;
+  pending: number;
+  failed: number;
+  disabled: number;
+  chunks: number;
+  totalBytes: number;
+}
+
+export interface KnowledgeDocumentChunk {
+  id: string;
+  documentId: string;
+  knowledgeBaseId: string;
+  ownerId: string;
+  position: number;
+  content: string;
+  tokenCount: number | null;
+  fastgptDataId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocumentChunkList {
+  items: KnowledgeDocumentChunk[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface KnowledgeBaseList {
+  items: KnowledgeBase[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface KnowledgeBaseStats {
+  total: number;
+  ready: number;
+  pending: number;
+  failed: number;
+  disabled: number;
+  appBindings: number;
+}
+
+export interface KnowledgeBaseLinkedApp {
+  id: string;
+  name: string;
+  description: string | null;
+  fastgptAppId: string | null;
+  status: AppStatus;
+  attachedAt: string;
+}
+
+export type ConversationStatus = 'active' | 'archived';
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MessageStatus = 'pending' | 'completed' | 'failed';
+
+export interface Conversation {
+  id: string;
+  appId: string;
+  appName: string;
+  userId: string;
+  title: string;
+  status: ConversationStatus;
+  messageCount: number;
+  lastMessagePreview: string | null;
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationList {
+  items: Conversation[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ConversationStats {
+  total: number;
+  active: number;
+  archived: number;
+  messages: number;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  sequenceNo: number;
+  role: MessageRole;
+  content: string;
+  status: MessageStatus;
+  externalMessageId: string | null;
+  model: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  latencyMs: number | null;
+  errorCode: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ConversationDetail {
+  conversation: Conversation;
+  messages: ConversationMessage[];
+}
+
+export interface OverviewData {
+  summary: {
+    apps: number;
+    activeApps: number;
+    knowledgeBases: number;
+    readyKnowledgeBases: number;
+    conversations: number;
+    activeConversations: number;
+    messages: number;
+    bindings: number;
+    boundApps: number;
+    boundKnowledgeBases: number;
+  };
+  activity: Array<{
+    day: string;
+    conversations: number;
+    messages: number;
+  }>;
+  recent: Array<{
+    id: string;
+    type: 'app' | 'knowledge_base' | 'conversation';
+    title: string;
+    subtitle: string | null;
+    status: string;
+    occurredAt: string;
+  }>;
+}
+
+export interface AuthResult {
+  user: User;
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresIn: number;
+}
+
+export interface ApiErrorBody {
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+}

@@ -1,0 +1,44 @@
+# KnowledgeHub 数据库设计
+
+## 设计范围
+
+第一阶段只使用 PostgreSQL，负责用户、权限、AI 应用、知识库、会话和消息数据。
+Redis 与 MongoDB 将在出现明确的缓存、限流或大规模非结构化数据需求后引入。
+
+## 实体关系
+
+```mermaid
+erDiagram
+    USERS ||--o{ USER_ROLES : has
+    ROLES ||--o{ USER_ROLES : grants
+    USERS ||--o{ AI_APPS : owns
+    USERS ||--o{ KNOWLEDGE_BASES : owns
+    KNOWLEDGE_BASES ||--o{ KNOWLEDGE_DOCUMENTS : contains
+    KNOWLEDGE_DOCUMENTS ||--o{ KNOWLEDGE_DOCUMENT_CHUNKS : splits_into
+    AI_APPS ||--o{ APP_KNOWLEDGE_BASES : attaches
+    KNOWLEDGE_BASES ||--o{ APP_KNOWLEDGE_BASES : attaches
+    USERS ||--o{ CONVERSATIONS : starts
+    AI_APPS ||--o{ CONVERSATIONS : serves
+    CONVERSATIONS ||--o{ MESSAGES : contains
+    USERS ||--o{ REFRESH_TOKENS : authenticates
+```
+
+## 关键决策
+
+- 全部业务主键使用 UUID，避免暴露连续编号，也便于未来分布式写入。
+- 邮箱在写入前必须转为小写，并通过表达式唯一索引保证账号唯一。
+- 用户与角色、应用与知识库均使用关联表表达多对多关系。
+- `app_knowledge_bases.owner_id` 配合复合外键，保证应用不能绑定其他所有者的知识库。
+- `knowledge_documents` 通过 `(knowledge_base_id, owner_id)` 复合外键继承知识库所有权，并记录来源、解析状态、分块数和 FastGPT Collection ID。
+- `knowledge_document_chunks` 保存有序正文和检索元数据；复合外键继续传递所有权，唯一位置约束保证文档内顺序，触发器自动同步文档分块数。
+- 消息使用 `(conversation_id, sequence_no)` 唯一约束维持会话内顺序。
+- FastGPT API Key 只预留密文字段，应用层不得保存明文密钥。
+- JSONB 只承载可变扩展字段，核心关系仍使用普通列和外键表达。
+- 删除用户、应用等核心数据默认受限，避免级联误删；会话删除时才级联删除消息。
+
+## 后续演进
+
+- 第二阶段加入数据库迁移工具，建表脚本不再直接承担版本升级。
+- 需要多租户协作时，引入组织、组织成员和资源权限表。
+- 出现热点读取后加入 Redis，并用性能数据证明缓存收益。
+- 对话量达到 PostgreSQL 运维瓶颈后，再评估将消息迁移到 MongoDB。
