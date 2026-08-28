@@ -25,6 +25,8 @@ const envSchema = z.object({
     .string()
     .regex(/^[0-9a-fA-F]{64}$/)
     .default(developmentEncryptionKey),
+  FASTGPT_API_BASE_URL: z.string().url().default('https://api.fastgpt.in/api/v1'),
+  FASTGPT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });

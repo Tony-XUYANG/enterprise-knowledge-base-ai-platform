@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
 
@@ -283,6 +283,81 @@ describe('authentication and AI app API', () => {
       archived: 0,
       messages: 2,
     });
+
+    let fastGptRequestUrl = '';
+    let fastGptRequestHeaders: Headers | undefined;
+    let fastGptRequestBody: Record<string, unknown> | undefined;
+    const fastGptFetch = vi.spyOn(globalThis, 'fetch');
+    fastGptFetch.mockImplementationOnce(async (url, init) => {
+      fastGptRequestUrl = String(url);
+      fastGptRequestHeaders = new Headers(init?.headers);
+      fastGptRequestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        id: 'fastgpt-message-success',
+        model: 'fastgpt-test-model',
+        choices: [{ message: { content: '退款审核通过后会在三个工作日内原路退回。' } }],
+        usage: { prompt_tokens: 24, completion_tokens: 15 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    const generatedReplyResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/generate`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ message: '退款审核通过后多久到账？' });
+    expect(generatedReplyResponse.status).toBe(201);
+    expect(generatedReplyResponse.body.data.userMessage).toMatchObject({
+      role: 'user',
+      sequenceNo: 3,
+      content: '退款审核通过后多久到账？',
+    });
+    expect(generatedReplyResponse.body.data.assistantMessage).toMatchObject({
+      role: 'assistant',
+      sequenceNo: 4,
+      status: 'completed',
+      externalMessageId: 'fastgpt-message-success',
+      model: 'fastgpt-test-model',
+      promptTokens: 24,
+      completionTokens: 15,
+    });
+    expect(fastGptRequestUrl).toBe('https://api.fastgpt.in/api/v1/chat/completions');
+    expect(fastGptRequestHeaders?.get('Authorization')).toBe(
+      'Bearer fastgpt-replacement-secret-2026',
+    );
+    expect(fastGptRequestBody).toMatchObject({
+      chatId: conversationId,
+      stream: false,
+      detail: false,
+      temperature: 0.2,
+    });
+    expect(fastGptRequestBody?.messages).toHaveLength(3);
+    expect(JSON.stringify(generatedReplyResponse.body)).not.toContain('replacement-secret');
+
+    fastGptFetch.mockImplementationOnce(async () => new Response('rate limited', { status: 429 }));
+    const rateLimitedReplyResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/generate`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ message: '请再试一次' });
+    expect(rateLimitedReplyResponse.status).toBe(503);
+    expect(rateLimitedReplyResponse.body.error.code).toBe('FASTGPT_RATE_LIMITED');
+    fastGptFetch.mockRestore();
+
+    const detailAfterGenerationFailure = await request(app)
+      .get(`/api/v1/conversations/${conversationId}`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(detailAfterGenerationFailure.body.data.messages).toHaveLength(6);
+    expect(detailAfterGenerationFailure.body.data.messages[5]).toMatchObject({
+      role: 'assistant',
+      sequenceNo: 6,
+      status: 'failed',
+      errorCode: 'FASTGPT_RATE_LIMITED',
+    });
+
+    const crossUserGenerationResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/generate`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`)
+      .send({ message: '不应调用其他用户的应用' });
+    expect(crossUserGenerationResponse.status).toBe(404);
+    expect(crossUserGenerationResponse.body.error.code).toBe('CONVERSATION_NOT_FOUND');
 
     const crossUserConversationRead = await request(app)
       .get(`/api/v1/conversations/${conversationId}`)
@@ -706,7 +781,7 @@ describe('authentication and AI app API', () => {
       readyKnowledgeBases: 1,
       conversations: 1,
       activeConversations: 1,
-      messages: 2,
+      messages: 6,
       bindings: 1,
       boundApps: 1,
       boundKnowledgeBases: 1,
@@ -717,7 +792,7 @@ describe('authentication and AI app API', () => {
         (total: number, item: { messages: number }) => total + item.messages,
         0,
       ),
-    ).toBe(2);
+    ).toBe(6);
     expect(overviewResponse.body.data.recent).toHaveLength(3);
     expect(overviewResponse.body.data.recent.map((item: { type: string }) => item.type))
       .toEqual(expect.arrayContaining(['app', 'knowledge_base', 'conversation']));

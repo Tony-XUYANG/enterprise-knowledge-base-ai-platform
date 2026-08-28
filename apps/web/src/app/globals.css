@@ -2700,6 +2700,12 @@ a {
   font-size: 10px;
 }
 
+.messageContent > footer > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .messageFailure {
   display: inline-flex;
   align-items: center;
@@ -2715,6 +2721,30 @@ a {
   justify-content: center;
   gap: 8px;
   color: var(--text-secondary);
+}
+
+.conversationComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+  border-top: 1px solid var(--border);
+  padding: 13px 16px;
+}
+
+.conversationComposer textarea {
+  width: 100%;
+  min-height: 58px;
+  max-height: 120px;
+  resize: vertical;
+}
+
+.conversationComposer .primaryButton {
+  min-height: 42px;
+}
+
+.conversationComposerError {
+  grid-column: 1 / -1;
 }
 
 .confirmPanel {
@@ -3270,6 +3300,10 @@ a {
   .messageTimeline {
     max-height: 58vh;
     padding-inline: 16px;
+  }
+
+  .conversationComposer {
+    padding: 12px 16px;
   }
 
   .chunkToolbar {

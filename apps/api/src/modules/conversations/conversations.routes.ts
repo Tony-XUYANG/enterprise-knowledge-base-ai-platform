@@ -5,9 +5,11 @@ import {
   conversationIdSchema,
   createConversationSchema,
   createMessageSchema,
+  generateConversationReplySchema,
   listConversationsQuerySchema,
   updateConversationSchema,
 } from './conversations.schemas.js';
+import { generateConversationReply } from './conversation-generation.service.js';
 import {
   archiveConversation,
   createConversation,
@@ -84,6 +86,16 @@ conversationsRouter.post('/:conversationId/messages', async (request, response) 
       authenticatedUserId(request),
       conversationIdSchema.parse(request.params.conversationId),
       createMessageSchema.parse(request.body),
+    ),
+  });
+});
+
+conversationsRouter.post('/:conversationId/generate', async (request, response) => {
+  response.status(201).json({
+    data: await generateConversationReply(
+      authenticatedUserId(request),
+      conversationIdSchema.parse(request.params.conversationId),
+      generateConversationReplySchema.parse(request.body),
     ),
   });
 });

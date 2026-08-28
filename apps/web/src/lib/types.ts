@@ -236,6 +236,11 @@ export interface ConversationDetail {
   messages: ConversationMessage[];
 }
 
+export interface ConversationGenerationResult {
+  userMessage: ConversationMessage;
+  assistantMessage: ConversationMessage;
+}
+
 export interface OverviewData {
   summary: {
     apps: number;

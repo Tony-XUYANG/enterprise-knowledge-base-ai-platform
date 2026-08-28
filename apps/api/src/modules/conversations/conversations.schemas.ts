@@ -40,7 +40,12 @@ export const createMessageSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const generateConversationReplySchema = z.object({
+  message: z.string().trim().min(1, '消息内容不能为空').max(4000),
+});
+
 export type CreateConversationInput = z.infer<typeof createConversationSchema>;
 export type UpdateConversationInput = z.infer<typeof updateConversationSchema>;
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
+export type GenerateConversationReplyInput = z.infer<typeof generateConversationReplySchema>;

@@ -25,6 +25,7 @@ import type {
   AppList,
   Conversation,
   ConversationDetail,
+  ConversationGenerationResult,
   ConversationList,
   ConversationStats,
   ConversationStatus,
@@ -185,6 +186,36 @@ export function ConversationsDashboard() {
       setDetailConversation(null);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function sendConversationMessage(message: string) {
+    if (!detailConversation) return;
+    try {
+      await clientApi<ConversationGenerationResult>(
+        `/api/conversations/${detailConversation.id}/generate`,
+        { method: 'POST', body: JSON.stringify({ message }) },
+      );
+      const updatedDetail = await clientApi<ConversationDetail>(
+        `/api/conversations/${detailConversation.id}`,
+      );
+      setDetail(updatedDetail);
+      setDetailConversation(updatedDetail.conversation);
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        handleApiError(requestError);
+      } else {
+        try {
+          setDetail(await clientApi<ConversationDetail>(
+            `/api/conversations/${detailConversation.id}`,
+          ));
+          setReloadKey((key) => key + 1);
+        } catch {
+          // Keep the existing timeline; the composer displays the original generation error.
+        }
+      }
+      throw requestError;
     }
   }
 
@@ -382,6 +413,7 @@ export function ConversationsDashboard() {
         open={Boolean(detailConversation)}
         detail={detail}
         loading={detailLoading}
+        onSend={sendConversationMessage}
         onClose={() => { setDetailConversation(null); setDetail(null); }}
       />
       <ConfirmDialog
