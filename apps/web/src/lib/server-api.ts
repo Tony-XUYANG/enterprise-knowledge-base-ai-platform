@@ -41,9 +41,13 @@ export async function handleAuthentication(
   request: Request,
 ): Promise<NextResponse> {
   try {
+    const userAgent = request.headers.get('user-agent');
     const upstream = await fetch(`${apiBaseUrl}/api/v1/auth${backendPath}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(userAgent ? { 'User-Agent': userAgent } : {}),
+      },
       body: await request.text(),
       cache: 'no-store',
     });

@@ -49,6 +49,8 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(40).max(200),
 });
 
+export const sessionIdSchema = z.string().uuid();
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),
   newPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),

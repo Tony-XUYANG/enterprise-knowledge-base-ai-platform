@@ -3,12 +3,20 @@
 import {
   Eye,
   EyeOff,
+  CircleHelp,
+  Clock3,
+  ChevronDown,
+  ChevronUp,
   KeyRound,
+  Laptop,
   LoaderCircle,
   LogOut,
+  MapPin,
   MonitorSmartphone,
   Save,
   ShieldCheck,
+  Smartphone,
+  Tablet,
   UserRound,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -19,7 +27,7 @@ import {
   PASSWORD_MAX_CHARACTERS,
   PASSWORD_MIN_CHARACTERS,
 } from '@/lib/password-policy';
-import type { SessionSummary, User } from '@/lib/types';
+import type { AuthSession, SessionSummary, User } from '@/lib/types';
 import { PasswordStrength } from './password-strength';
 import { SessionRevokeDialog } from './session-revoke-dialog';
 import { WorkspaceShell } from './workspace-shell';
@@ -40,7 +48,10 @@ export function AccountSecurity() {
   const [submitting, setSubmitting] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [sessionError, setSessionError] = useState('');
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [sessionSuccess, setSessionSuccess] = useState('');
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [revokeAllDialogOpen, setRevokeAllDialogOpen] = useState(false);
+  const [revokingSession, setRevokingSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -93,6 +104,10 @@ export function AccountSecurity() {
     user && trimmedProfileName && trimmedProfileName !== user.displayName,
   );
   const userInitial = user?.displayName.trim().slice(0, 1).toUpperCase() || 'U';
+  const visibleSessions = sessionSummary?.items.slice(
+    0,
+    showAllSessions ? sessionSummary.items.length : 5,
+  ) ?? [];
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,6 +176,7 @@ export function AccountSecurity() {
 
   async function handleRevokeAllSessions() {
     setSessionError('');
+    setSessionSuccess('');
     try {
       await clientApi<{ revokedSessions: number }>('/api/auth/sessions', {
         method: 'DELETE',
@@ -177,9 +193,49 @@ export function AccountSecurity() {
     }
   }
 
+  async function handleRevokeSession(session: AuthSession) {
+    setSessionError('');
+    setSessionSuccess('');
+    try {
+      const result = await clientApi<{ revokedSession: boolean; currentSession: boolean }>(
+        `/api/auth/sessions/${session.id}`,
+        { method: 'DELETE' },
+      );
+      if (result.currentSession) {
+        router.replace('/login?sessionsRevoked=1');
+        router.refresh();
+        return;
+      }
+      setSessionSummary((current) => current ? {
+        ...current,
+        activeSessions: Math.max(0, current.activeSessions - 1),
+        items: current.items.filter((item) => item.id !== session.id),
+      } : current);
+      setRevokingSession(null);
+      setSessionSuccess('设备已退出');
+    } catch (requestError) {
+      setSessionError(
+        requestError instanceof ClientApiError
+          ? requestError.message
+          : '无法退出该设备，请稍后重试',
+      );
+      throw requestError;
+    }
+  }
+
   function formatLastLogin(value: string | null | undefined) {
     if (!value) return '暂无记录';
     return new Intl.DateTimeFormat('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+  }
+
+  function formatSessionDate(value: string) {
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -377,13 +433,66 @@ export function AccountSecurity() {
               </span>
             </div>
 
+            <div className="sessionList" aria-label="活跃登录设备">
+              {sessionSummary === null ? (
+                <div className="sessionListLoading"><LoaderCircle className="spin" size={18} />正在加载设备</div>
+              ) : sessionSummary.items.length === 0 ? (
+                <div className="sessionListLoading">没有活跃设备</div>
+              ) : visibleSessions.map((session) => {
+                const DeviceIcon = session.deviceType === 'mobile'
+                  ? Smartphone
+                  : session.deviceType === 'tablet'
+                    ? Tablet
+                    : session.deviceType === 'desktop'
+                      ? Laptop
+                      : CircleHelp;
+                return (
+                  <article className="sessionRow" key={session.id}>
+                    <span className="sessionDeviceIcon" aria-hidden="true"><DeviceIcon size={18} /></span>
+                    <div className="sessionDeviceDetails">
+                      <header>
+                        <strong>{session.deviceName}</strong>
+                        {session.current && <span className="sessionCurrentBadge">当前设备</span>}
+                      </header>
+                      <span><MapPin size={13} />{session.ipAddress || 'IP 未记录'}</span>
+                      <span><Clock3 size={13} />最近活动 {formatSessionDate(session.lastUsedAt)}</span>
+                      <small>登录于 {formatSessionDate(session.createdAt)} · 到期 {formatSessionDate(session.expiresAt)}</small>
+                    </div>
+                    <button
+                      className="iconButton dangerHover"
+                      type="button"
+                      onClick={() => setRevokingSession(session)}
+                      aria-label={session.current ? '退出当前设备' : `退出 ${session.deviceName}`}
+                      title={session.current ? '退出当前设备' : '退出此设备'}
+                    >
+                      <LogOut size={17} />
+                    </button>
+                  </article>
+                );
+              })}
+              {sessionSummary && sessionSummary.items.length > 5 && (
+                <button
+                  className="textButton sessionListToggle"
+                  type="button"
+                  onClick={() => setShowAllSessions((visible) => !visible)}
+                  aria-expanded={showAllSessions}
+                >
+                  {showAllSessions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {showAllSessions
+                    ? '收起设备'
+                    : `展开其余 ${sessionSummary.items.length - 5} 个设备`}
+                </button>
+              )}
+            </div>
+
             {sessionError && <div className="formError" role="alert">{sessionError}</div>}
+            {sessionSuccess && <div className="formSuccess" role="status">{sessionSuccess}</div>}
 
             <div className="settingsFormActions sessionActions">
               <button
                 className="dangerButton"
                 type="button"
-                onClick={() => setSessionDialogOpen(true)}
+                onClick={() => setRevokeAllDialogOpen(true)}
                 disabled={!sessionSummary || sessionSummary.activeSessions === 0}
               >
                 <LogOut size={18} />
@@ -395,9 +504,17 @@ export function AccountSecurity() {
       </div>
 
       <SessionRevokeDialog
-        open={sessionDialogOpen}
-        onClose={() => setSessionDialogOpen(false)}
-        onConfirm={handleRevokeAllSessions}
+        open={revokeAllDialogOpen || Boolean(revokingSession)}
+        scope={revokeAllDialogOpen ? 'all' : 'single'}
+        sessionName={revokingSession?.deviceName}
+        currentSession={revokingSession?.current}
+        onClose={() => {
+          setRevokeAllDialogOpen(false);
+          setRevokingSession(null);
+        }}
+        onConfirm={revokeAllDialogOpen
+          ? handleRevokeAllSessions
+          : () => revokingSession ? handleRevokeSession(revokingSession) : Promise.resolve()}
       />
     </WorkspaceShell>
   );

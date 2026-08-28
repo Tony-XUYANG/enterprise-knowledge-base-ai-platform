@@ -8,6 +8,19 @@ export interface User {
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
+  items: AuthSession[];
+}
+
+export interface AuthSession {
+  id: string;
+  deviceName: string;
+  deviceType: 'desktop' | 'mobile' | 'tablet' | 'unknown';
+  userAgent: string | null;
+  ipAddress: string | null;
+  lastUsedAt: string;
+  expiresAt: string;
+  createdAt: string;
+  current: boolean;
 }
 
 export type AppStatus = 'draft' | 'active' | 'disabled';

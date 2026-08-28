@@ -36,6 +36,20 @@ interface RefreshSessionRow extends UserRow {
   refresh_token_id: string;
 }
 
+interface ActiveSessionRow {
+  id: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  last_used_at: Date;
+  expires_at: Date;
+  created_at: Date;
+}
+
+export interface SessionContext {
+  userAgent: string | null;
+  ipAddress: string | null;
+}
+
 export interface PublicUser {
   id: string;
   email: string;
@@ -53,6 +67,19 @@ export interface AuthResult {
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
+  items: AuthSession[];
+}
+
+export interface AuthSession {
+  id: string;
+  deviceName: string;
+  deviceType: 'desktop' | 'mobile' | 'tablet' | 'unknown';
+  userAgent: string | null;
+  ipAddress: string | null;
+  lastUsedAt: string;
+  expiresAt: string;
+  createdAt: string;
+  current: boolean;
 }
 
 async function getRoles(client: PoolClient, userId: string): Promise<string[]> {
@@ -71,15 +98,25 @@ async function issueSession(
   client: PoolClient,
   user: Pick<UserRow, 'id' | 'email' | 'display_name'>,
   roles: string[],
+  context: SessionContext,
 ): Promise<AuthResult> {
   const refreshToken = createRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
 
-  await client.query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3)`,
-    [user.id, refreshTokenHash, refreshTokenExpiresAt()],
+  const sessionResult = await client.query<{ id: string }>(
+    `INSERT INTO refresh_tokens (
+       user_id, token_hash, expires_at, user_agent, ip_address, last_used_at
+     ) VALUES ($1, $2, $3, $4, $5::inet, CURRENT_TIMESTAMP)
+     RETURNING id`,
+    [
+      user.id,
+      refreshTokenHash,
+      refreshTokenExpiresAt(),
+      context.userAgent,
+      context.ipAddress,
+    ],
   );
+  const sessionId = sessionResult.rows[0]!.id;
 
   return {
     user: {
@@ -88,13 +125,16 @@ async function issueSession(
       displayName: user.display_name,
       roles,
     },
-    accessToken: await createAccessToken({ userId: user.id, roles }),
+    accessToken: await createAccessToken({ userId: user.id, roles, sessionId }),
     refreshToken,
     accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
   };
 }
 
-export async function register(input: RegisterInput): Promise<AuthResult> {
+export async function register(
+  input: RegisterInput,
+  context: SessionContext,
+): Promise<AuthResult> {
   const passwordHash = await hashPassword(input.password);
 
   return withTransaction(async (client) => {
@@ -128,11 +168,14 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
       [user.id, memberRole.id],
     );
 
-    return issueSession(client, user, ['member']);
+    return issueSession(client, user, ['member'], context);
   });
 }
 
-export async function login(input: LoginInput): Promise<AuthResult> {
+export async function login(
+  input: LoginInput,
+  context: SessionContext,
+): Promise<AuthResult> {
   const userResult = await query<UserRow>(
     `SELECT id, email, password_hash, display_name, status
        FROM users
@@ -152,7 +195,7 @@ export async function login(input: LoginInput): Promise<AuthResult> {
   return withTransaction(async (client) => {
     await client.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
     const roles = await getRoles(client, user.id);
-    return issueSession(client, user, roles);
+    return issueSession(client, user, roles, context);
   });
 }
 
@@ -180,13 +223,36 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
       throw new AppError(403, 'USER_DISABLED', '账号已被停用');
     }
 
+    const roles = await getRoles(client, session.id);
+    const rotatedRefreshToken = createRefreshToken();
     await client.query(
-      'UPDATE refresh_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1',
-      [session.refresh_token_id],
+      `UPDATE refresh_tokens
+          SET token_hash = $1,
+              expires_at = $2,
+              last_used_at = CURRENT_TIMESTAMP
+        WHERE id = $3`,
+      [
+        hashRefreshToken(rotatedRefreshToken),
+        refreshTokenExpiresAt(),
+        session.refresh_token_id,
+      ],
     );
 
-    const roles = await getRoles(client, session.id);
-    return issueSession(client, session, roles);
+    return {
+      user: {
+        id: session.id,
+        email: session.email,
+        displayName: session.display_name,
+        roles,
+      },
+      accessToken: await createAccessToken({
+        userId: session.id,
+        roles,
+        sessionId: session.refresh_token_id,
+      }),
+      refreshToken: rotatedRefreshToken,
+      accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
+    };
   });
 }
 
@@ -312,36 +378,115 @@ export async function updateCurrentUser(
   });
 }
 
-export async function getSessionSummary(userId: string): Promise<SessionSummary> {
-  const result = await query<{
+function describeSessionDevice(userAgent: string | null): Pick<AuthSession, 'deviceName' | 'deviceType'> {
+  if (!userAgent) {
+    return { deviceName: '未知设备', deviceType: 'unknown' };
+  }
+
+  const browser = /Edg\//u.test(userAgent)
+    ? 'Microsoft Edge'
+    : /(?:Chrome|CriOS)\//u.test(userAgent)
+      ? 'Google Chrome'
+      : /(?:Firefox|FxiOS)\//u.test(userAgent)
+        ? 'Firefox'
+        : /Safari\//u.test(userAgent) && /Version\//u.test(userAgent)
+          ? 'Safari'
+          : /curl\//iu.test(userAgent)
+            ? '命令行客户端'
+            : '其他客户端';
+  const operatingSystem = /Windows NT/u.test(userAgent)
+    ? 'Windows'
+    : /Android/u.test(userAgent)
+      ? 'Android'
+      : /(?:iPhone|iPad|iPod)/u.test(userAgent)
+        ? 'iOS'
+        : /Mac OS X/u.test(userAgent)
+          ? 'macOS'
+          : /Linux/u.test(userAgent)
+            ? 'Linux'
+            : '';
+  const deviceType: AuthSession['deviceType'] = /iPad|Tablet/u.test(userAgent)
+    ? 'tablet'
+    : /Mobile|iPhone|iPod|Android/u.test(userAgent)
+      ? 'mobile'
+      : browser === '其他客户端'
+        ? 'unknown'
+        : 'desktop';
+
+  return {
+    deviceName: operatingSystem ? `${browser} · ${operatingSystem}` : browser,
+    deviceType,
+  };
+}
+
+export async function getSessionSummary(
+  userId: string,
+  currentSessionId?: string,
+): Promise<SessionSummary> {
+  const userResult = await query<{
     status: 'active' | 'disabled';
     last_login_at: Date | null;
-    active_sessions: number;
   }>(
-    `SELECT u.status,
-            u.last_login_at,
-            count(rt.id)::integer AS active_sessions
-       FROM users u
-       LEFT JOIN refresh_tokens rt
-         ON rt.user_id = u.id
-        AND rt.revoked_at IS NULL
-        AND rt.expires_at > CURRENT_TIMESTAMP
-      WHERE u.id = $1
-      GROUP BY u.id`,
+    'SELECT status, last_login_at FROM users WHERE id = $1',
     [userId],
   );
-  const summary = result.rows[0];
+  const user = userResult.rows[0];
 
-  if (!summary) {
+  if (!user) {
     throw new AppError(401, 'INVALID_ACCESS_TOKEN', '访问令牌对应的用户不存在');
   }
-  if (summary.status !== 'active') {
+  if (user.status !== 'active') {
     throw new AppError(403, 'USER_DISABLED', '账号已被停用');
   }
 
+  const sessionsResult = await query<ActiveSessionRow>(
+    `SELECT id, user_agent, host(ip_address) AS ip_address,
+            last_used_at, expires_at, created_at
+       FROM refresh_tokens
+      WHERE user_id = $1
+        AND revoked_at IS NULL
+        AND expires_at > CURRENT_TIMESTAMP
+      ORDER BY last_used_at DESC, created_at DESC, id DESC`,
+    [userId],
+  );
+  const items = sessionsResult.rows.map((session) => ({
+    id: session.id,
+    ...describeSessionDevice(session.user_agent),
+    userAgent: session.user_agent,
+    ipAddress: session.ip_address,
+    lastUsedAt: session.last_used_at.toISOString(),
+    expiresAt: session.expires_at.toISOString(),
+    createdAt: session.created_at.toISOString(),
+    current: session.id === currentSessionId,
+  })).sort((left, right) => Number(right.current) - Number(left.current));
+
   return {
-    activeSessions: summary.active_sessions,
-    lastLoginAt: summary.last_login_at?.toISOString() ?? null,
+    activeSessions: items.length,
+    lastLoginAt: user.last_login_at?.toISOString() ?? null,
+    items,
+  };
+}
+
+export async function revokeSession(
+  userId: string,
+  sessionId: string,
+  currentSessionId?: string,
+): Promise<{ revokedSession: boolean; currentSession: boolean }> {
+  const result = await query(
+    `UPDATE refresh_tokens
+        SET revoked_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+        AND user_id = $2
+        AND revoked_at IS NULL
+        AND expires_at > CURRENT_TIMESTAMP`,
+    [sessionId, userId],
+  );
+  if (result.rowCount === 0) {
+    throw new AppError(404, 'SESSION_NOT_FOUND', '登录会话不存在或已失效');
+  }
+  return {
+    revokedSession: true,
+    currentSession: sessionId === currentSessionId,
   };
 }
 

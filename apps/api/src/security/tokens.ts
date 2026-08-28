@@ -5,12 +5,13 @@ import { env } from '../config/env.js';
 export interface AccessTokenPayload {
   userId: string;
   roles: string[];
+  sessionId?: string;
 }
 
 const secret = new TextEncoder().encode(env.JWT_SECRET);
 
 export async function createAccessToken(payload: AccessTokenPayload): Promise<string> {
-  return new SignJWT({ roles: payload.roles })
+  return new SignJWT({ roles: payload.roles, sid: payload.sessionId })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(payload.userId)
     .setIssuedAt()
@@ -34,6 +35,7 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenPaylo
   return {
     userId: payload.sub,
     roles: payload.roles.filter((role): role is string => typeof role === 'string'),
+    ...(typeof payload.sid === 'string' ? { sessionId: payload.sid } : {}),
   };
 }
 

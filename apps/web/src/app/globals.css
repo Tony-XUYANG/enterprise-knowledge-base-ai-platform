@@ -780,6 +780,101 @@ a {
   margin-top: 18px;
 }
 
+.sessionList {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.sessionRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 4px;
+}
+
+.sessionRow + .sessionRow {
+  border-top: 1px solid var(--border);
+}
+
+.sessionDeviceIcon {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 6px;
+  background: #edf2f0;
+  color: var(--text-secondary);
+}
+
+.sessionDeviceDetails {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+}
+
+.sessionDeviceDetails header {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessionDeviceDetails header strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionCurrentBadge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  padding: 2px 7px;
+  color: var(--primary-hover);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sessionDeviceDetails > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.sessionDeviceDetails > small {
+  width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.sessionListLoading {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.sessionListToggle {
+  width: 100%;
+  min-height: 38px;
+  justify-content: center;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 12px;
+}
+
 .statStrip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

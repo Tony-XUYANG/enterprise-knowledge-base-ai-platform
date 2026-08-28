@@ -16,7 +16,8 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/auth/me` | Bearer token | Read the current user |
 | PATCH | `/api/v1/auth/me` | Bearer token | Update the current user's display name |
 | PATCH | `/api/v1/auth/password` | Bearer token + current password | Change password and revoke all refresh sessions |
-| GET | `/api/v1/auth/sessions` | Bearer token | Read active refresh-session count and last login time |
+| GET | `/api/v1/auth/sessions` | Bearer token | List active device sessions and mark the current session |
+| DELETE | `/api/v1/auth/sessions/:sessionId` | Bearer token | Revoke one owned active device session |
 | DELETE | `/api/v1/auth/sessions` | Bearer token | Revoke all active refresh sessions |
 | GET | `/api/v1/overview` | Bearer token | Read the owned resource summary, activity, and recent changes |
 | POST | `/api/v1/apps` | Bearer token | Create an AI app |
@@ -56,6 +57,14 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | POST | `/api/v1/conversations/:id/messages` | Bearer token | Append a message with the next sequence number |
 | POST | `/api/v1/conversations/:id/generate` | Bearer token | Send a user message to the configured FastGPT app and persist its reply |
 | POST | `/api/v1/conversations/:id/messages/:messageId/retry` | Bearer token | Retry the latest failed assistant reply in place |
+
+## Device sessions
+
+`GET /api/v1/auth/sessions` returns `activeSessions`, `lastLoginAt`, and an ordered `items` list. Each active session includes its stable UUID, parsed device name and type, observed IP address, raw user agent, login time, most recent refresh activity, expiry time, and a `current` flag derived from the access token session claim.
+
+Refresh-token rotation updates the existing session row with a new token hash instead of creating another device entry. Replaying the old refresh token still fails. `DELETE /api/v1/auth/sessions/:sessionId` only revokes an active session owned by the authenticated user and returns whether it was the current session; unknown, expired, revoked, and cross-user IDs all return `SESSION_NOT_FOUND`.
+
+Registration, login, refresh, and logout share the credential rate limiter. Authenticated profile, password, and session-management endpoints are excluded so normal security operations cannot exhaust the login budget.
 
 ## List queries and relation counts
 

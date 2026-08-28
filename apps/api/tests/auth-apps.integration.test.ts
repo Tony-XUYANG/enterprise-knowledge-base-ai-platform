@@ -958,12 +958,29 @@ describe('authentication and AI app API', () => {
     expect(disabledAppResponse.status).toBe(200);
     expect(disabledAppResponse.body.data.status).toBe('disabled');
 
+    const sessionBeforeRotation = await pool.query<{ id: string }>(
+      `SELECT rt.id
+         FROM refresh_tokens rt
+         JOIN users u ON u.id = rt.user_id
+        WHERE u.email = $1 AND rt.revoked_at IS NULL`,
+      [ownerEmail],
+    );
+    expect(sessionBeforeRotation.rows).toHaveLength(1);
+
     const refreshResponse = await request(app).post('/api/v1/auth/refresh').send({
       refreshToken: originalRefreshToken,
     });
     expect(refreshResponse.status).toBe(200);
     expect(refreshResponse.body.data.refreshToken).not.toBe(originalRefreshToken);
     const rotatedRefreshToken: string = refreshResponse.body.data.refreshToken;
+    const sessionAfterRotation = await pool.query<{ id: string }>(
+      `SELECT rt.id
+         FROM refresh_tokens rt
+         JOIN users u ON u.id = rt.user_id
+        WHERE u.email = $1 AND rt.revoked_at IS NULL`,
+      [ownerEmail],
+    );
+    expect(sessionAfterRotation.rows).toEqual(sessionBeforeRotation.rows);
 
     const replayResponse = await request(app).post('/api/v1/auth/refresh').send({
       refreshToken: originalRefreshToken,
@@ -1042,39 +1059,90 @@ describe('authentication and AI app API', () => {
     });
     expect(oldPasswordLogin.status).toBe(401);
 
-    const newPasswordLogin = await request(app).post('/api/v1/auth/login').send({
-      email: ownerEmail,
-      password: newPassword,
-    });
+    const newPasswordLogin = await request(app)
+      .post('/api/v1/auth/login')
+      .set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36')
+      .send({
+        email: ownerEmail,
+        password: newPassword,
+      });
     expect(newPasswordLogin.status).toBe(200);
+    const firstSessionAccessToken: string = newPasswordLogin.body.data.accessToken;
     const firstSessionRefreshToken: string = newPasswordLogin.body.data.refreshToken;
 
-    const additionalSessionLogin = await request(app).post('/api/v1/auth/login').send({
-      email: ownerEmail,
-      password: newPassword,
-    });
+    const additionalSessionLogin = await request(app)
+      .post('/api/v1/auth/login')
+      .set('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1')
+      .send({
+        email: ownerEmail,
+        password: newPassword,
+      });
     expect(additionalSessionLogin.status).toBe(200);
     const additionalSessionRefreshToken: string =
       additionalSessionLogin.body.data.refreshToken;
 
     const sessionSummary = await request(app)
       .get('/api/v1/auth/sessions')
-      .set('Authorization', `Bearer ${ownerAccessToken}`);
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
     expect(sessionSummary.status).toBe(200);
     expect(sessionSummary.body.data.activeSessions).toBe(2);
     expect(sessionSummary.body.data.lastLoginAt).toEqual(expect.any(String));
+    expect(sessionSummary.body.data.items).toHaveLength(2);
+    expect(sessionSummary.body.data.items[0]).toMatchObject({
+      current: true,
+      deviceName: 'Google Chrome · Windows',
+      deviceType: 'desktop',
+      ipAddress: expect.any(String),
+      lastUsedAt: expect.any(String),
+      expiresAt: expect.any(String),
+      createdAt: expect.any(String),
+    });
+    const additionalSession = sessionSummary.body.data.items.find(
+      (session: { current: boolean }) => !session.current,
+    );
+    expect(additionalSession).toMatchObject({
+      deviceName: 'Safari · iOS',
+      deviceType: 'mobile',
+    });
+
+    const outsiderSessionResult = await pool.query<{ id: string }>(
+      `SELECT rt.id
+         FROM refresh_tokens rt
+         JOIN users u ON u.id = rt.user_id
+        WHERE u.email = $1 AND rt.revoked_at IS NULL
+        ORDER BY rt.created_at DESC
+        LIMIT 1`,
+      [outsiderEmail],
+    );
+    const crossUserSessionRevoke = await request(app)
+      .delete(`/api/v1/auth/sessions/${outsiderSessionResult.rows[0]!.id}`)
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(crossUserSessionRevoke.status).toBe(404);
+    expect(crossUserSessionRevoke.body.error.code).toBe('SESSION_NOT_FOUND');
+
+    const revokeAdditionalSession = await request(app)
+      .delete(`/api/v1/auth/sessions/${additionalSession.id}`)
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(revokeAdditionalSession.status).toBe(200);
+    expect(revokeAdditionalSession.body.data).toEqual({
+      revokedSession: true,
+      currentSession: false,
+    });
+
+    const refreshAfterSingleSessionRevoke = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: additionalSessionRefreshToken });
+    expect(refreshAfterSingleSessionRevoke.status).toBe(401);
 
     const revokeSessions = await request(app)
       .delete('/api/v1/auth/sessions')
-      .set('Authorization', `Bearer ${ownerAccessToken}`);
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
     expect(revokeSessions.status).toBe(200);
-    expect(revokeSessions.body.data.revokedSessions).toBe(2);
+    expect(revokeSessions.body.data.revokedSessions).toBe(1);
 
-    for (const refreshToken of [firstSessionRefreshToken, additionalSessionRefreshToken]) {
-      const refreshAfterSessionRevoke = await request(app)
-        .post('/api/v1/auth/refresh')
-        .send({ refreshToken });
-      expect(refreshAfterSessionRevoke.status).toBe(401);
-    }
+    const refreshAfterSessionRevoke = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: firstSessionRefreshToken });
+    expect(refreshAfterSessionRevoke.status).toBe(401);
   });
 });
