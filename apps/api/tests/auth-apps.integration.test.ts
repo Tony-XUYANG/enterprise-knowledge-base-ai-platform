@@ -339,7 +339,6 @@ describe('authentication and AI app API', () => {
       .send({ message: '请再试一次' });
     expect(rateLimitedReplyResponse.status).toBe(503);
     expect(rateLimitedReplyResponse.body.error.code).toBe('FASTGPT_RATE_LIMITED');
-    fastGptFetch.mockRestore();
 
     const detailAfterGenerationFailure = await request(app)
       .get(`/api/v1/conversations/${conversationId}`)
@@ -351,6 +350,100 @@ describe('authentication and AI app API', () => {
       status: 'failed',
       errorCode: 'FASTGPT_RATE_LIMITED',
     });
+    const failedAssistantMessageId: string = detailAfterGenerationFailure.body.data.messages[5].id;
+
+    const crossUserRetryResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/messages/${failedAssistantMessageId}/retry`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(crossUserRetryResponse.status).toBe(404);
+    expect(crossUserRetryResponse.body.error.code).toBe('CONVERSATION_NOT_FOUND');
+
+    let retryRequestBody: Record<string, unknown> | undefined;
+    fastGptFetch.mockImplementationOnce(async (_url, init) => {
+      retryRequestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({
+        id: 'fastgpt-message-retried',
+        model: 'fastgpt-retry-model',
+        choices: [{ message: { content: '系统已恢复，请重新查看退款进度。' } }],
+        usage: { prompt_tokens: 31, completion_tokens: 12 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const retryReplyResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/messages/${failedAssistantMessageId}/retry`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(retryReplyResponse.status).toBe(200);
+    expect(retryReplyResponse.body.data.userMessage).toMatchObject({
+      role: 'user',
+      sequenceNo: 5,
+      content: '请再试一次',
+    });
+    expect(retryReplyResponse.body.data.assistantMessage).toMatchObject({
+      id: failedAssistantMessageId,
+      role: 'assistant',
+      sequenceNo: 6,
+      status: 'completed',
+      externalMessageId: 'fastgpt-message-retried',
+      model: 'fastgpt-retry-model',
+    });
+    expect(retryRequestBody?.messages).toHaveLength(5);
+    expect(retryReplyResponse.body.data.assistantMessage.metadata).toMatchObject({
+      provider: 'fastgpt',
+      retryCount: 1,
+      previousErrors: [expect.objectContaining({ code: 'FASTGPT_RATE_LIMITED' })],
+    });
+    expect(JSON.stringify(retryReplyResponse.body)).not.toContain('replacement-secret');
+    fastGptFetch.mockRestore();
+
+    const detailAfterRetry = await request(app)
+      .get(`/api/v1/conversations/${conversationId}`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(detailAfterRetry.body.data.messages).toHaveLength(6);
+    expect(detailAfterRetry.body.data.messages[5]).toMatchObject({
+      id: failedAssistantMessageId,
+      status: 'completed',
+      content: '系统已恢复，请重新查看退款进度。',
+    });
+
+    const completedRetryResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/messages/${failedAssistantMessageId}/retry`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(completedRetryResponse.status).toBe(409);
+    expect(completedRetryResponse.body.error.code).toBe('MESSAGE_NOT_RETRYABLE');
+
+    const pendingAssistantResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/messages`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ role: 'assistant', content: '正在处理另一个请求', status: 'pending' });
+    expect(pendingAssistantResponse.status).toBe(201);
+
+    const blockedGenerationResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/generate`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ message: '这条消息不应被写入' });
+    expect(blockedGenerationResponse.status).toBe(409);
+    expect(blockedGenerationResponse.body.error.code).toBe('GENERATION_IN_PROGRESS');
+
+    const duplicatePendingResponse = await request(app)
+      .post(`/api/v1/conversations/${conversationId}/messages`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ role: 'assistant', content: '重复的生成任务', status: 'pending' });
+    expect(duplicatePendingResponse.status).toBe(409);
+    expect(duplicatePendingResponse.body.error.code).toBe('GENERATION_IN_PROGRESS');
+
+    const detailAfterBlockedGeneration = await request(app)
+      .get(`/api/v1/conversations/${conversationId}`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(detailAfterBlockedGeneration.body.data.messages).toHaveLength(7);
+    expect(JSON.stringify(detailAfterBlockedGeneration.body)).not.toContain('这条消息不应被写入');
+    await pool.query('DELETE FROM messages WHERE id = $1', [pendingAssistantResponse.body.data.id]);
+    await pool.query(
+      `UPDATE conversations
+          SET last_message_at = (
+            SELECT max(created_at) FROM messages WHERE conversation_id = $1
+          )
+        WHERE id = $1`,
+      [conversationId],
+    );
 
     const crossUserGenerationResponse = await request(app)
       .post(`/api/v1/conversations/${conversationId}/generate`)

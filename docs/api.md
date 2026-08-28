@@ -55,6 +55,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | DELETE | `/api/v1/conversations/:id` | Bearer token | Archive a conversation |
 | POST | `/api/v1/conversations/:id/messages` | Bearer token | Append a message with the next sequence number |
 | POST | `/api/v1/conversations/:id/generate` | Bearer token | Send a user message to the configured FastGPT app and persist its reply |
+| POST | `/api/v1/conversations/:id/messages/:messageId/retry` | Bearer token | Retry the latest failed assistant reply in place |
 
 ## List queries and relation counts
 
@@ -75,6 +76,10 @@ The conversation list accepts `page`, `pageSize`, `search`, `status`, `appId`, a
 Message sequence numbers are assigned inside a transaction after locking the owned conversation. This keeps `(conversation_id, sequence_no)` unique under concurrent writes. Archived conversations remain readable but reject new messages with `CONVERSATION_ARCHIVED`.
 
 `POST /api/v1/conversations/:id/generate` accepts `{ "message": "..." }`. The owned conversation must be active, its app must not be disabled, and the app must have an encrypted FastGPT API Key. The API persists the user message and a pending assistant message before contacting FastGPT, sends up to the latest 30 completed system/user/assistant messages as context, then updates the assistant row with content, model, token usage, external message ID, latency, and provider metadata.
+
+Message preparation locks the owned conversation and writes the user message plus pending assistant message in one transaction. A partial unique index permits only one pending assistant reply per conversation; overlapping requests return `GENERATION_IN_PROGRESS` without writing another user message.
+
+`POST /api/v1/conversations/:id/messages/:messageId/retry` accepts no body. It only retries the latest message when that message is a failed assistant reply immediately preceded by a completed user message. The same assistant row and sequence number are reused, while `metadata.retryCount` and `metadata.previousErrors` retain the retry audit trail. Other messages return `MESSAGE_NOT_RETRYABLE`.
 
 The FastGPT key is decrypted only inside the API process and is sent in the upstream `Authorization` header. It is never included in the browser response or stored message metadata. Upstream authentication, rate limiting, invalid responses, network failures, and timeouts use stable `FASTGPT_*` error codes; failed generations remain visible as failed assistant messages for auditability.
 

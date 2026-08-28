@@ -2713,6 +2713,30 @@ a {
   color: var(--danger);
 }
 
+.messageRetryButton {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #d7dfdc;
+  border-radius: 5px;
+  background: #ffffff;
+  padding: 3px 7px;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.messageRetryButton:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary-hover);
+}
+
+.messageRetryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .conversationDetailLoading,
 .messageEmpty {
   display: flex;

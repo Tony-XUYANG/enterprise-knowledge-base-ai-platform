@@ -7,9 +7,13 @@ import {
   createMessageSchema,
   generateConversationReplySchema,
   listConversationsQuerySchema,
+  messageIdSchema,
   updateConversationSchema,
 } from './conversations.schemas.js';
-import { generateConversationReply } from './conversation-generation.service.js';
+import {
+  generateConversationReply,
+  retryConversationReply,
+} from './conversation-generation.service.js';
 import {
   archiveConversation,
   createConversation,
@@ -96,6 +100,16 @@ conversationsRouter.post('/:conversationId/generate', async (request, response) 
       authenticatedUserId(request),
       conversationIdSchema.parse(request.params.conversationId),
       generateConversationReplySchema.parse(request.body),
+    ),
+  });
+});
+
+conversationsRouter.post('/:conversationId/messages/:messageId/retry', async (request, response) => {
+  response.json({
+    data: await retryConversationReply(
+      authenticatedUserId(request),
+      conversationIdSchema.parse(request.params.conversationId),
+      messageIdSchema.parse(request.params.messageId),
     ),
   });
 });

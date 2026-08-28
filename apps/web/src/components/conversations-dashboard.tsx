@@ -219,6 +219,36 @@ export function ConversationsDashboard() {
     }
   }
 
+  async function retryConversationMessage(messageId: string) {
+    if (!detailConversation) return;
+    try {
+      await clientApi<ConversationGenerationResult>(
+        `/api/conversations/${detailConversation.id}/messages/${messageId}/retry`,
+        { method: 'POST' },
+      );
+      const updatedDetail = await clientApi<ConversationDetail>(
+        `/api/conversations/${detailConversation.id}`,
+      );
+      setDetail(updatedDetail);
+      setDetailConversation(updatedDetail.conversation);
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        handleApiError(requestError);
+      } else {
+        try {
+          setDetail(await clientApi<ConversationDetail>(
+            `/api/conversations/${detailConversation.id}`,
+          ));
+          setReloadKey((key) => key + 1);
+        } catch {
+          // Keep the existing timeline; the dialog displays the retry error.
+        }
+      }
+      throw requestError;
+    }
+  }
+
   async function archiveSelectedConversation() {
     if (!archivingConversation) return;
     try {
@@ -414,6 +444,7 @@ export function ConversationsDashboard() {
         detail={detail}
         loading={detailLoading}
         onSend={sendConversationMessage}
+        onRetry={retryConversationMessage}
         onClose={() => { setDetailConversation(null); setDetail(null); }}
       />
       <ConfirmDialog

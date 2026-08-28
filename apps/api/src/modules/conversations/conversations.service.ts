@@ -363,6 +363,9 @@ export async function createMessage(
     });
   } catch (error) {
     if (isPostgreSqlError(error) && error.code === '23505') {
+      if (error.constraint === 'messages_one_pending_assistant_per_conversation_idx') {
+        throw new AppError(409, 'GENERATION_IN_PROGRESS', '该对话已有回复正在生成');
+      }
       throw new AppError(409, 'MESSAGE_ALREADY_EXISTS', '外部消息 ID 已存在');
     }
     throw error;

@@ -5,6 +5,7 @@ export const messageRoleSchema = z.enum(['system', 'user', 'assistant', 'tool'])
 export const messageStatusSchema = z.enum(['pending', 'completed', 'failed']);
 
 export const conversationIdSchema = z.string().uuid();
+export const messageIdSchema = z.string().uuid();
 
 export const createConversationSchema = z.object({
   appId: z.string().uuid(),

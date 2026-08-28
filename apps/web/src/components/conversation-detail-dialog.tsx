@@ -5,6 +5,7 @@ import {
   CircleAlert,
   LoaderCircle,
   MessageSquareText,
+  RotateCcw,
   Send,
   Settings2,
   UserRound,
@@ -45,16 +46,19 @@ export function ConversationDetailDialog({
   detail,
   loading,
   onSend,
+  onRetry,
   onClose,
 }: {
   open: boolean;
   detail: ConversationDetail | null;
   loading: boolean;
   onSend: (message: string) => Promise<void>;
+  onRetry: (messageId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -62,16 +66,17 @@ export function ConversationDetailDialog({
     if (!open) return;
     setMessage('');
     setError('');
+    setRetryingMessageId(null);
   }, [detail?.conversation.id, open]);
 
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !sending) onClose();
+      if (event.key === 'Escape' && !sending && !retryingMessageId) onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, open, sending]);
+  }, [onClose, open, retryingMessageId, sending]);
 
   useEffect(() => {
     if (!open || !detail) return;
@@ -84,6 +89,11 @@ export function ConversationDetailDialog({
   if (!open) return null;
 
   const archived = detail?.conversation.status === 'archived';
+  const hasPendingReply = Boolean(detail?.messages.some((item) => (
+    item.role === 'assistant' && item.status === 'pending'
+  )));
+  const latestMessageId = detail?.messages.at(-1)?.id;
+  const requestInFlight = sending || Boolean(retryingMessageId);
 
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -101,9 +111,21 @@ export function ConversationDetailDialog({
     }
   }
 
+  async function retryMessage(messageId: string) {
+    setRetryingMessageId(messageId);
+    setError('');
+    try {
+      await onRetry(messageId);
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : '回复重试失败，请稍后再试');
+    } finally {
+      setRetryingMessageId(null);
+    }
+  }
+
   return (
     <div className="dialogBackdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !sending) onClose();
+      if (event.target === event.currentTarget && !requestInFlight) onClose();
     }}>
       <section className="dialogPanel conversationDetailDialog" role="dialog" aria-modal="true" aria-labelledby="conversation-detail-title">
         <header className="dialogHeader">
@@ -114,7 +136,7 @@ export function ConversationDetailDialog({
               <small>{detail?.conversation.appName ?? '正在读取会话记录'}</small>
             </span>
           </div>
-          <button className="iconButton" type="button" onClick={onClose} disabled={sending} aria-label="关闭" title="关闭">
+          <button className="iconButton" type="button" onClick={onClose} disabled={requestInFlight} aria-label="关闭" title="关闭">
             <X size={19} />
           </button>
         </header>
@@ -134,6 +156,12 @@ export function ConversationDetailDialog({
               ) : detail.messages.map((timelineMessage) => {
                 const RoleIcon = roleIcons[timelineMessage.role];
                 const tokenTotal = (timelineMessage.promptTokens ?? 0) + (timelineMessage.completionTokens ?? 0);
+                const retryable = (
+                  timelineMessage.role === 'assistant'
+                  && timelineMessage.status === 'failed'
+                  && timelineMessage.id === latestMessageId
+                  && !archived
+                );
                 return (
                   <article className={`messageEntry messageRole-${timelineMessage.role}`} key={timelineMessage.id}>
                     <span className="messageRoleIcon" aria-hidden="true"><RoleIcon size={16} /></span>
@@ -149,7 +177,23 @@ export function ConversationDetailDialog({
                           {tokenTotal > 0 && <span>{tokenTotal} tokens</span>}
                           {timelineMessage.latencyMs !== null && <span>{timelineMessage.latencyMs} ms</span>}
                           {timelineMessage.status === 'pending' && <span><LoaderCircle className="spin" size={12} />生成中</span>}
-                          {timelineMessage.status === 'failed' && <span className="messageFailure"><CircleAlert size={13} />{timelineMessage.errorCode || '生成失败'}</span>}
+                          {timelineMessage.status === 'failed' && (
+                            <span className="messageFailure"><CircleAlert size={13} />{timelineMessage.errorCode || '生成失败'}</span>
+                          )}
+                          {retryable && (
+                            <button
+                              className="messageRetryButton"
+                              type="button"
+                              onClick={() => void retryMessage(timelineMessage.id)}
+                              disabled={requestInFlight || hasPendingReply}
+                              aria-label={`重试第 ${timelineMessage.sequenceNo} 条助手回复`}
+                            >
+                              {retryingMessageId === timelineMessage.id
+                                ? <LoaderCircle className="spin" size={13} />
+                                : <RotateCcw size={13} />}
+                              {retryingMessageId === timelineMessage.id ? '重试中' : '重试'}
+                            </button>
+                          )}
                         </footer>
                       )}
                     </div>
@@ -169,15 +213,15 @@ export function ConversationDetailDialog({
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
-                placeholder={archived ? '对话已归档' : '输入测试消息'}
+                placeholder={archived ? '对话已归档' : hasPendingReply ? '回复正在生成' : '输入测试消息'}
                 maxLength={4000}
                 rows={2}
-                disabled={archived || sending}
+                disabled={archived || requestInFlight || hasPendingReply}
                 required
               />
-              <button className="primaryButton" type="submit" disabled={archived || sending || !message.trim()}>
-                {sending ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}
-                {sending ? '生成中' : '发送'}
+              <button className="primaryButton" type="submit" disabled={archived || requestInFlight || hasPendingReply || !message.trim()}>
+                {sending || hasPendingReply ? <LoaderCircle className="spin" size={18} /> : <Send size={18} />}
+                {sending || hasPendingReply ? '生成中' : '发送'}
               </button>
               {error && <div className="formError conversationComposerError" role="alert">{error}</div>}
             </form>
