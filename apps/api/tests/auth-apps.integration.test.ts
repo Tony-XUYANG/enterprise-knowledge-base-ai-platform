@@ -153,6 +153,51 @@ describe('authentication and AI app API', () => {
     expect(outsiderRegistration.status).toBe(201);
     const outsiderAccessToken: string = outsiderRegistration.body.data.accessToken;
 
+    const ownerSecurityEvents = await request(app)
+      .get('/api/v1/auth/security-events?limit=10')
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(ownerSecurityEvents.status).toBe(200);
+    expect(ownerSecurityEvents.body.data.total).toBeGreaterThanOrEqual(3);
+    expect(ownerSecurityEvents.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'account_registered',
+        outcome: 'success',
+      }),
+      expect.objectContaining({
+        eventType: 'profile_updated',
+        outcome: 'success',
+      }),
+      expect.objectContaining({
+        eventType: 'login_failed',
+        outcome: 'failure',
+        metadata: { reason: 'invalid_credentials' },
+      }),
+    ]));
+    expect(ownerSecurityEvents.body.data.items[0]).toMatchObject({
+      id: expect.any(String),
+      deviceName: expect.any(String),
+      deviceType: expect.any(String),
+      createdAt: expect.any(String),
+    });
+    expect(JSON.stringify(ownerSecurityEvents.body)).not.toContain(password);
+    expect(JSON.stringify(ownerSecurityEvents.body)).not.toContain(originalRefreshToken);
+
+    const outsiderSecurityEvents = await request(app)
+      .get('/api/v1/auth/security-events?limit=10')
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(outsiderSecurityEvents.status).toBe(200);
+    expect(outsiderSecurityEvents.body.data.items).toHaveLength(1);
+    expect(outsiderSecurityEvents.body.data.items[0].eventType).toBe('account_registered');
+    expect(
+      ownerSecurityEvents.body.data.items.map((event: { id: string }) => event.id),
+    ).not.toContain(outsiderSecurityEvents.body.data.items[0].id);
+
+    const invalidSecurityEventLimit = await request(app)
+      .get('/api/v1/auth/security-events?limit=100')
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(invalidSecurityEventLimit.status).toBe(400);
+    expect(invalidSecurityEventLimit.body.error.code).toBe('VALIDATION_ERROR');
+
     const createResponse = await request(app)
       .post('/api/v1/apps')
       .set('Authorization', `Bearer ${ownerAccessToken}`)
@@ -1129,6 +1174,24 @@ describe('authentication and AI app API', () => {
       currentSession: false,
     });
 
+    const eventsAfterSessionRevoke = await request(app)
+      .get('/api/v1/auth/security-events?limit=20')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(eventsAfterSessionRevoke.status).toBe(200);
+    expect(eventsAfterSessionRevoke.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'session_revoked',
+        outcome: 'success',
+        actorSessionId: sessionSummary.body.data.items[0].id,
+        targetSessionId: additionalSession.id,
+        metadata: { currentSession: false },
+      }),
+      expect.objectContaining({
+        eventType: 'login_succeeded',
+        outcome: 'success',
+      }),
+    ]));
+
     const refreshAfterSingleSessionRevoke = await request(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: additionalSessionRefreshToken });
@@ -1139,6 +1202,16 @@ describe('authentication and AI app API', () => {
       .set('Authorization', `Bearer ${firstSessionAccessToken}`);
     expect(revokeSessions.status).toBe(200);
     expect(revokeSessions.body.data.revokedSessions).toBe(1);
+
+    const eventsAfterAllSessionRevoke = await request(app)
+      .get('/api/v1/auth/security-events?limit=20')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(eventsAfterAllSessionRevoke.status).toBe(200);
+    expect(eventsAfterAllSessionRevoke.body.data.items[0]).toMatchObject({
+      eventType: 'all_sessions_revoked',
+      outcome: 'success',
+      metadata: { revokedSessions: 1 },
+    });
 
     const refreshAfterSessionRevoke = await request(app)
       .post('/api/v1/auth/refresh')

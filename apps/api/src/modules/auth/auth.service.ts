@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import { env } from '../../config/env.js';
 import { isPostgreSqlError } from '../../db/pg-error.js';
-import { pool, query, withTransaction } from '../../db/pool.js';
+import { query, withTransaction } from '../../db/pool.js';
 import { AppError } from '../../errors/app-error.js';
 import { hashPassword, verifyPassword } from '../../security/password.js';
 import {
@@ -23,6 +23,8 @@ import type {
   RegisterInput,
   UpdateProfileInput,
 } from './auth.schemas.js';
+import { recordSecurityEvent } from './security-events.service.js';
+import { describeClientDevice } from './session-device.js';
 
 interface UserRow {
   id: string;
@@ -64,6 +66,11 @@ export interface AuthResult {
   accessTokenExpiresIn: number;
 }
 
+interface IssuedSession {
+  result: AuthResult;
+  sessionId: string;
+}
+
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
@@ -99,7 +106,7 @@ async function issueSession(
   user: Pick<UserRow, 'id' | 'email' | 'display_name'>,
   roles: string[],
   context: SessionContext,
-): Promise<AuthResult> {
+): Promise<IssuedSession> {
   const refreshToken = createRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
 
@@ -119,15 +126,18 @@ async function issueSession(
   const sessionId = sessionResult.rows[0]!.id;
 
   return {
-    user: {
-      id: user.id,
-      email: user.email,
-      displayName: user.display_name,
-      roles,
+    sessionId,
+    result: {
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.display_name,
+        roles,
+      },
+      accessToken: await createAccessToken({ userId: user.id, roles, sessionId }),
+      refreshToken,
+      accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
     },
-    accessToken: await createAccessToken({ userId: user.id, roles, sessionId }),
-    refreshToken,
-    accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
   };
 }
 
@@ -168,7 +178,15 @@ export async function register(
       [user.id, memberRole.id],
     );
 
-    return issueSession(client, user, ['member'], context);
+    const issuedSession = await issueSession(client, user, ['member'], context);
+    await recordSecurityEvent({
+      userId: user.id,
+      eventType: 'account_registered',
+      outcome: 'success',
+      context,
+      actorSessionId: issuedSession.sessionId,
+    }, client);
+    return issuedSession.result;
   });
 }
 
@@ -184,18 +202,44 @@ export async function login(
   );
   const user = userResult.rows[0];
 
-  if (!user || !(await verifyPassword(input.password, user.password_hash))) {
+  if (!user) {
+    throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
+  }
+
+  if (!(await verifyPassword(input.password, user.password_hash))) {
+    await recordSecurityEvent({
+      userId: user.id,
+      eventType: 'login_failed',
+      outcome: 'failure',
+      context,
+      metadata: { reason: 'invalid_credentials' },
+    });
     throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
   }
 
   if (user.status !== 'active') {
+    await recordSecurityEvent({
+      userId: user.id,
+      eventType: 'login_failed',
+      outcome: 'failure',
+      context,
+      metadata: { reason: 'account_disabled' },
+    });
     throw new AppError(403, 'USER_DISABLED', '账号已被停用');
   }
 
   return withTransaction(async (client) => {
     await client.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
     const roles = await getRoles(client, user.id);
-    return issueSession(client, user, roles, context);
+    const issuedSession = await issueSession(client, user, roles, context);
+    await recordSecurityEvent({
+      userId: user.id,
+      eventType: 'login_succeeded',
+      outcome: 'success',
+      context,
+      actorSessionId: issuedSession.sessionId,
+    }, client);
+    return issuedSession.result;
   });
 }
 
@@ -256,19 +300,38 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
   });
 }
 
-export async function logout(refreshToken: string): Promise<void> {
-  await pool.query(
-    `UPDATE refresh_tokens
-        SET revoked_at = CURRENT_TIMESTAMP
-      WHERE token_hash = $1
-        AND revoked_at IS NULL`,
-    [hashRefreshToken(refreshToken)],
-  );
+export async function logout(
+  refreshToken: string,
+  context: SessionContext,
+): Promise<void> {
+  await withTransaction(async (client) => {
+    const result = await client.query<{ id: string; user_id: string }>(
+      `UPDATE refresh_tokens
+          SET revoked_at = CURRENT_TIMESTAMP
+        WHERE token_hash = $1
+          AND revoked_at IS NULL
+        RETURNING id, user_id`,
+      [hashRefreshToken(refreshToken)],
+    );
+    const session = result.rows[0];
+    if (!session) return;
+
+    await recordSecurityEvent({
+      userId: session.user_id,
+      eventType: 'logout',
+      outcome: 'success',
+      context,
+      actorSessionId: session.id,
+      targetSessionId: session.id,
+    }, client);
+  });
 }
 
 export async function changePassword(
   userId: string,
   input: ChangePasswordInput,
+  context: SessionContext,
+  actorSessionId?: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
     const result = await client.query<UserRow>(
@@ -329,19 +392,29 @@ export async function changePassword(
       passwordHash,
       userId,
     ]);
-    await client.query(
+    const revokedSessions = await client.query(
       `UPDATE refresh_tokens
           SET revoked_at = CURRENT_TIMESTAMP
         WHERE user_id = $1
           AND revoked_at IS NULL`,
       [userId],
     );
+    await recordSecurityEvent({
+      userId,
+      eventType: 'password_changed',
+      outcome: 'success',
+      context,
+      actorSessionId,
+      metadata: { revokedSessions: revokedSessions.rowCount ?? 0 },
+    }, client);
   });
 }
 
 export async function updateCurrentUser(
   userId: string,
   input: UpdateProfileInput,
+  context: SessionContext,
+  actorSessionId?: string,
 ): Promise<PublicUser> {
   return withTransaction(async (client) => {
     const result = await client.query<UserRow>(
@@ -368,6 +441,14 @@ export async function updateCurrentUser(
       [userId, input.displayName],
     );
     const updatedUser = updatedResult.rows[0]!;
+    await recordSecurityEvent({
+      userId,
+      eventType: 'profile_updated',
+      outcome: 'success',
+      context,
+      actorSessionId,
+      metadata: { displayNameChanged: user.display_name !== updatedUser.display_name },
+    }, client);
 
     return {
       id: updatedUser.id,
@@ -376,47 +457,6 @@ export async function updateCurrentUser(
       roles: await getRoles(client, userId),
     };
   });
-}
-
-function describeSessionDevice(userAgent: string | null): Pick<AuthSession, 'deviceName' | 'deviceType'> {
-  if (!userAgent) {
-    return { deviceName: '未知设备', deviceType: 'unknown' };
-  }
-
-  const browser = /Edg\//u.test(userAgent)
-    ? 'Microsoft Edge'
-    : /(?:Chrome|CriOS)\//u.test(userAgent)
-      ? 'Google Chrome'
-      : /(?:Firefox|FxiOS)\//u.test(userAgent)
-        ? 'Firefox'
-        : /Safari\//u.test(userAgent) && /Version\//u.test(userAgent)
-          ? 'Safari'
-          : /curl\//iu.test(userAgent)
-            ? '命令行客户端'
-            : '其他客户端';
-  const operatingSystem = /Windows NT/u.test(userAgent)
-    ? 'Windows'
-    : /Android/u.test(userAgent)
-      ? 'Android'
-      : /(?:iPhone|iPad|iPod)/u.test(userAgent)
-        ? 'iOS'
-        : /Mac OS X/u.test(userAgent)
-          ? 'macOS'
-          : /Linux/u.test(userAgent)
-            ? 'Linux'
-            : '';
-  const deviceType: AuthSession['deviceType'] = /iPad|Tablet/u.test(userAgent)
-    ? 'tablet'
-    : /Mobile|iPhone|iPod|Android/u.test(userAgent)
-      ? 'mobile'
-      : browser === '其他客户端'
-        ? 'unknown'
-        : 'desktop';
-
-  return {
-    deviceName: operatingSystem ? `${browser} · ${operatingSystem}` : browser,
-    deviceType,
-  };
 }
 
 export async function getSessionSummary(
@@ -451,7 +491,7 @@ export async function getSessionSummary(
   );
   const items = sessionsResult.rows.map((session) => ({
     id: session.id,
-    ...describeSessionDevice(session.user_agent),
+    ...describeClientDevice(session.user_agent),
     userAgent: session.user_agent,
     ipAddress: session.ip_address,
     lastUsedAt: session.last_used_at.toISOString(),
@@ -470,27 +510,41 @@ export async function getSessionSummary(
 export async function revokeSession(
   userId: string,
   sessionId: string,
+  context: SessionContext,
   currentSessionId?: string,
 ): Promise<{ revokedSession: boolean; currentSession: boolean }> {
-  const result = await query(
-    `UPDATE refresh_tokens
-        SET revoked_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-        AND user_id = $2
-        AND revoked_at IS NULL
-        AND expires_at > CURRENT_TIMESTAMP`,
-    [sessionId, userId],
-  );
-  if (result.rowCount === 0) {
-    throw new AppError(404, 'SESSION_NOT_FOUND', '登录会话不存在或已失效');
-  }
-  return {
-    revokedSession: true,
-    currentSession: sessionId === currentSessionId,
-  };
+  return withTransaction(async (client) => {
+    const result = await client.query(
+      `UPDATE refresh_tokens
+          SET revoked_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+          AND user_id = $2
+          AND revoked_at IS NULL
+          AND expires_at > CURRENT_TIMESTAMP`,
+      [sessionId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw new AppError(404, 'SESSION_NOT_FOUND', '登录会话不存在或已失效');
+    }
+    const currentSession = sessionId === currentSessionId;
+    await recordSecurityEvent({
+      userId,
+      eventType: 'session_revoked',
+      outcome: 'success',
+      context,
+      actorSessionId: currentSessionId,
+      targetSessionId: sessionId,
+      metadata: { currentSession },
+    }, client);
+    return { revokedSession: true, currentSession };
+  });
 }
 
-export async function revokeAllSessions(userId: string): Promise<number> {
+export async function revokeAllSessions(
+  userId: string,
+  context: SessionContext,
+  actorSessionId?: string,
+): Promise<number> {
   return withTransaction(async (client) => {
     const userResult = await client.query<Pick<UserRow, 'status'>>(
       'SELECT status FROM users WHERE id = $1 FOR UPDATE',
@@ -513,6 +567,14 @@ export async function revokeAllSessions(userId: string): Promise<number> {
           AND expires_at > CURRENT_TIMESTAMP`,
       [userId],
     );
+    await recordSecurityEvent({
+      userId,
+      eventType: 'all_sessions_revoked',
+      outcome: 'success',
+      context,
+      actorSessionId,
+      metadata: { revokedSessions: result.rowCount ?? 0 },
+    }, client);
     return result.rowCount ?? 0;
   });
 }

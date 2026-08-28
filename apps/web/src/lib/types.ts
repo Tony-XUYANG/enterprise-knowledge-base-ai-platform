@@ -23,6 +23,35 @@ export interface AuthSession {
   current: boolean;
 }
 
+export type SecurityEventType =
+  | 'account_registered'
+  | 'login_succeeded'
+  | 'login_failed'
+  | 'profile_updated'
+  | 'password_changed'
+  | 'session_revoked'
+  | 'all_sessions_revoked'
+  | 'logout';
+
+export interface SecurityEvent {
+  id: string;
+  eventType: SecurityEventType;
+  outcome: 'success' | 'failure';
+  actorSessionId: string | null;
+  targetSessionId: string | null;
+  deviceName: string;
+  deviceType: AuthSession['deviceType'];
+  userAgent: string | null;
+  ipAddress: string | null;
+  metadata: Record<string, string | number | boolean | null>;
+  createdAt: string;
+}
+
+export interface SecurityEventList {
+  items: SecurityEvent[];
+  total: number;
+}
+
 export type AppStatus = 'draft' | 'active' | 'disabled';
 
 export interface AiApp {

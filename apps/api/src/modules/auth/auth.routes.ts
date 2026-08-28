@@ -7,6 +7,7 @@ import {
   loginSchema,
   refreshSchema,
   registerSchema,
+  securityEventQuerySchema,
   sessionIdSchema,
   updateProfileSchema,
 } from './auth.schemas.js';
@@ -23,6 +24,7 @@ import {
   type SessionContext,
   updateCurrentUser,
 } from './auth.service.js';
+import { getSecurityEvents } from './security-events.service.js';
 
 export const authRouter = Router();
 
@@ -66,7 +68,7 @@ authRouter.post('/refresh', credentialRateLimiter, async (request, response) => 
 
 authRouter.post('/logout', credentialRateLimiter, async (request, response) => {
   const input = refreshSchema.parse(request.body);
-  await logout(input.refreshToken);
+  await logout(input.refreshToken, sessionContext(request));
   response.status(204).send();
 });
 
@@ -74,7 +76,12 @@ authRouter.patch('/password', authenticate, async (request, response) => {
   if (!request.auth) {
     throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
   }
-  await changePassword(request.auth.userId, changePasswordSchema.parse(request.body));
+  await changePassword(
+    request.auth.userId,
+    changePasswordSchema.parse(request.body),
+    sessionContext(request),
+    request.auth.sessionId,
+  );
   response.status(204).send();
 });
 
@@ -92,6 +99,8 @@ authRouter.patch('/me', authenticate, async (request, response) => {
   const user = await updateCurrentUser(
     request.auth.userId,
     updateProfileSchema.parse(request.body),
+    sessionContext(request),
+    request.auth.sessionId,
   );
   response.json({ data: user });
 });
@@ -105,6 +114,16 @@ authRouter.get('/sessions', authenticate, async (request, response) => {
   });
 });
 
+authRouter.get('/security-events', authenticate, async (request, response) => {
+  if (!request.auth) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  const input = securityEventQuerySchema.parse(request.query);
+  response.json({
+    data: await getSecurityEvents(request.auth.userId, input.limit),
+  });
+});
+
 authRouter.delete('/sessions/:sessionId', authenticate, async (request, response) => {
   if (!request.auth) {
     throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
@@ -113,6 +132,7 @@ authRouter.delete('/sessions/:sessionId', authenticate, async (request, response
     data: await revokeSession(
       request.auth.userId,
       sessionIdSchema.parse(request.params.sessionId),
+      sessionContext(request),
       request.auth.sessionId,
     ),
   });
@@ -122,6 +142,10 @@ authRouter.delete('/sessions', authenticate, async (request, response) => {
   if (!request.auth) {
     throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
   }
-  const revokedSessions = await revokeAllSessions(request.auth.userId);
+  const revokedSessions = await revokeAllSessions(
+    request.auth.userId,
+    sessionContext(request),
+    request.auth.sessionId,
+  );
   response.json({ data: { revokedSessions } });
 });

@@ -1,5 +1,6 @@
 import {
   authenticatedApiFetch,
+  clientContextHeaders,
   clearSessionCookies,
   proxyResponse,
 } from '@/lib/server-api';
@@ -8,11 +9,11 @@ interface RouteContext {
   params: Promise<{ sessionId: string }>;
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
   const { sessionId } = await context.params;
   const upstream = await authenticatedApiFetch(
     `/api/v1/auth/sessions/${encodeURIComponent(sessionId)}`,
-    { method: 'DELETE' },
+    { method: 'DELETE', headers: clientContextHeaders(request) },
   );
 
   if (upstream.ok) {

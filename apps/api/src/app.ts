@@ -18,7 +18,14 @@ export function createApp() {
   app.use(
     pinoHttp({
       level: env.LOG_LEVEL,
-      redact: ['req.headers.authorization', 'req.body.password', 'req.body.refreshToken'],
+      redact: [
+        'req.headers.authorization',
+        'req.body.password',
+        'req.body.currentPassword',
+        'req.body.newPassword',
+        'req.body.refreshToken',
+        'req.body.fastgptApiKey',
+      ],
     }),
   );
   app.use(helmet());

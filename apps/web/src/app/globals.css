@@ -875,6 +875,107 @@ a {
   font-size: 12px;
 }
 
+.securityEventList {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.securityEventRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  padding: 14px 4px;
+}
+
+.securityEventRow + .securityEventRow {
+  border-top: 1px solid var(--border);
+}
+
+.securityEventIcon {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.securityEventIcon.failure {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.securityEventDetails {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.securityEventDetails header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.securityEventDetails header strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.securityEventOutcome {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  padding: 2px 7px;
+  color: var(--primary-hover);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.securityEventOutcome.failure {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.securityEventDetails > small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.securityEventDetails > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+}
+
+.securityEventDetails > div > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.securityEventError {
+  margin-top: 14px;
+}
+
+.securityEventLimitNote {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: right;
+}
+
 .statStrip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -1,5 +1,6 @@
 import {
   authenticatedApiFetch,
+  clientContextHeaders,
   clearSessionCookies,
   proxyResponse,
 } from '@/lib/server-api';
@@ -7,7 +8,10 @@ import {
 export async function PATCH(request: Request) {
   const upstream = await authenticatedApiFetch('/api/v1/auth/password', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...clientContextHeaders(request),
+    },
     body: await request.text(),
   });
 

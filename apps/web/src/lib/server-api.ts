@@ -11,6 +11,11 @@ function jsonError(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status });
 }
 
+export function clientContextHeaders(request: Request): Record<string, string> {
+  const userAgent = request.headers.get('user-agent')?.trim().slice(0, 512);
+  return userAgent ? { 'User-Agent': userAgent } : {};
+}
+
 async function setSessionCookies(session: AuthResult): Promise<void> {
   const cookieStore = await cookies();
   const common = {
@@ -41,12 +46,11 @@ export async function handleAuthentication(
   request: Request,
 ): Promise<NextResponse> {
   try {
-    const userAgent = request.headers.get('user-agent');
     const upstream = await fetch(`${apiBaseUrl}/api/v1/auth${backendPath}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(userAgent ? { 'User-Agent': userAgent } : {}),
+        ...clientContextHeaders(request),
       },
       body: await request.text(),
       cache: 'no-store',
@@ -134,7 +138,7 @@ export async function hasSessionCookie(): Promise<boolean> {
   return Boolean((await cookies()).get(accessCookieName)?.value);
 }
 
-export async function logoutSession(): Promise<NextResponse> {
+export async function logoutSession(request?: Request): Promise<NextResponse> {
   const cookieStore = await cookies();
   const refreshToken = cookieStore.get(refreshCookieName)?.value;
 
@@ -142,7 +146,10 @@ export async function logoutSession(): Promise<NextResponse> {
     try {
       await fetch(`${apiBaseUrl}/api/v1/auth/logout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(request ? clientContextHeaders(request) : {}),
+        },
         body: JSON.stringify({ refreshToken }),
         cache: 'no-store',
       });

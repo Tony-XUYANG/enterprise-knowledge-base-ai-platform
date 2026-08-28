@@ -21,6 +21,7 @@ erDiagram
     AI_APPS ||--o{ CONVERSATIONS : serves
     CONVERSATIONS ||--o{ MESSAGES : contains
     USERS ||--o{ REFRESH_TOKENS : authenticates
+    USERS ||--o{ SECURITY_EVENTS : audits
 ```
 
 ## 关键决策
@@ -39,6 +40,8 @@ erDiagram
 - FastGPT API Key 只预留密文字段，应用层不得保存明文密钥。
 - 刷新令牌行同时作为稳定设备会话：轮换时原位替换令牌哈希并更新最近活动时间，不为同一设备制造重复会话；访问令牌携带会话 ID，支持识别和单独撤销当前设备。
 - 设备会话记录用户代理、API 观察到的来源 IP、登录时间、最近活动与到期时间；这些字段只用于安全审计和用户主动退出设备，不参与授权决策。
+- `security_events` 保存账号安全活动的不可变快照：事件类型、结果、来源设备/IP、执行会话、目标会话、受控元数据和发生时间；会话 ID 按值保留以避免日志随会话清理而丢失。
+- 安全事件查询始终以 `user_id` 限定所有者；密码、令牌、API Key 和请求正文不进入审计元数据。
 - JSONB 只承载可变扩展字段，核心关系仍使用普通列和外键表达。
 - 删除用户、应用等核心数据默认受限，避免级联误删；会话删除时才级联删除消息。
 

@@ -19,6 +19,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/auth/sessions` | Bearer token | List active device sessions and mark the current session |
 | DELETE | `/api/v1/auth/sessions/:sessionId` | Bearer token | Revoke one owned active device session |
 | DELETE | `/api/v1/auth/sessions` | Bearer token | Revoke all active refresh sessions |
+| GET | `/api/v1/auth/security-events` | Bearer token | List recent owner-scoped security activity |
 | GET | `/api/v1/overview` | Bearer token | Read the owned resource summary, activity, and recent changes |
 | POST | `/api/v1/apps` | Bearer token | Create an AI app |
 | GET | `/api/v1/apps` | Bearer token | List the current user's apps |
@@ -65,6 +66,12 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 Refresh-token rotation updates the existing session row with a new token hash instead of creating another device entry. Replaying the old refresh token still fails. `DELETE /api/v1/auth/sessions/:sessionId` only revokes an active session owned by the authenticated user and returns whether it was the current session; unknown, expired, revoked, and cross-user IDs all return `SESSION_NOT_FOUND`.
 
 Registration, login, refresh, and logout share the credential rate limiter. Authenticated profile, password, and session-management endpoints are excluded so normal security operations cannot exhaust the login budget.
+
+## Security activity
+
+`GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
+
+The audit trail covers account registration, successful login, failed login for an existing account, profile updates, password changes, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

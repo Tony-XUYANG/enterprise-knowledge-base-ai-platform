@@ -3,6 +3,7 @@
 import {
   Eye,
   EyeOff,
+  AlertTriangle,
   CircleHelp,
   Clock3,
   ChevronDown,
@@ -11,23 +12,31 @@ import {
   Laptop,
   LoaderCircle,
   LogOut,
+  LogIn,
   MapPin,
   MonitorSmartphone,
   Save,
   ShieldCheck,
   Smartphone,
   Tablet,
+  History,
   UserRound,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ClientApiError, clientApi } from '@/lib/client-api';
 import {
   assessPassword,
   PASSWORD_MAX_CHARACTERS,
   PASSWORD_MIN_CHARACTERS,
 } from '@/lib/password-policy';
-import type { AuthSession, SessionSummary, User } from '@/lib/types';
+import type {
+  AuthSession,
+  SecurityEvent,
+  SecurityEventList,
+  SessionSummary,
+  User,
+} from '@/lib/types';
 import { PasswordStrength } from './password-strength';
 import { SessionRevokeDialog } from './session-revoke-dialog';
 import { WorkspaceShell } from './workspace-shell';
@@ -52,6 +61,23 @@ export function AccountSecurity() {
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [revokeAllDialogOpen, setRevokeAllDialogOpen] = useState(false);
   const [revokingSession, setRevokingSession] = useState<AuthSession | null>(null);
+  const [securityEvents, setSecurityEvents] = useState<SecurityEventList | null>(null);
+  const [securityEventError, setSecurityEventError] = useState('');
+  const [showAllSecurityEvents, setShowAllSecurityEvents] = useState(false);
+
+  const loadSecurityEvents = useCallback(async () => {
+    setSecurityEventError('');
+    try {
+      setSecurityEvents(await clientApi<SecurityEventList>('/api/auth/security-events?limit=20'));
+    } catch (requestError) {
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        router.replace('/login');
+        router.refresh();
+        return;
+      }
+      setSecurityEventError('安全活动加载失败，请稍后重试');
+    }
+  }, [router]);
 
   useEffect(() => {
     let mounted = true;
@@ -82,10 +108,11 @@ export function AccountSecurity() {
         }
         if (mounted) setSessionError('会话状态加载失败，请稍后重试');
       });
+    void loadSecurityEvents();
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [loadSecurityEvents, router]);
 
   const passwordAssessment = useMemo(
     () => assessPassword(newPassword, {
@@ -108,6 +135,10 @@ export function AccountSecurity() {
     0,
     showAllSessions ? sessionSummary.items.length : 5,
   ) ?? [];
+  const visibleSecurityEvents = securityEvents?.items.slice(
+    0,
+    showAllSecurityEvents ? securityEvents.items.length : 6,
+  ) ?? [];
 
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +155,7 @@ export function AccountSecurity() {
       setUser(updatedUser);
       setProfileName(updatedUser.displayName);
       setProfileSuccess('个人资料已保存');
+      await loadSecurityEvents();
       window.dispatchEvent(
         new CustomEvent<User>('knowledgehub:user-updated', { detail: updatedUser }),
       );
@@ -213,6 +245,7 @@ export function AccountSecurity() {
       } : current);
       setRevokingSession(null);
       setSessionSuccess('设备已退出');
+      await loadSecurityEvents();
     } catch (requestError) {
       setSessionError(
         requestError instanceof ClientApiError
@@ -241,6 +274,32 @@ export function AccountSecurity() {
       hour: '2-digit',
       minute: '2-digit',
     }).format(new Date(value));
+  }
+
+  function describeSecurityEvent(event: SecurityEvent) {
+    switch (event.eventType) {
+      case 'account_registered':
+        return { title: '账号已创建', detail: '企业账号注册完成' };
+      case 'login_succeeded':
+        return { title: '登录成功', detail: '已建立新的设备会话' };
+      case 'login_failed':
+        return {
+          title: '登录失败',
+          detail: event.metadata.reason === 'account_disabled'
+            ? '已拦截停用账号的登录尝试'
+            : '已拦截凭据错误的登录尝试',
+        };
+      case 'profile_updated':
+        return { title: '个人资料已更新', detail: '账号显示信息发生变更' };
+      case 'password_changed':
+        return { title: '密码已更新', detail: '所有设备会话已同步失效' };
+      case 'session_revoked':
+        return { title: '设备会话已退出', detail: '已撤销指定设备的访问权限' };
+      case 'all_sessions_revoked':
+        return { title: '所有设备已退出', detail: '已撤销账号的全部活跃会话' };
+      case 'logout':
+        return { title: '已主动退出', detail: '当前设备会话已结束' };
+    }
   }
 
   return (
@@ -499,6 +558,85 @@ export function AccountSecurity() {
                 退出所有设备
               </button>
             </div>
+          </section>
+
+          <section className="settingsSection" aria-labelledby="security-activity-title">
+            <header className="settingsSectionHeader">
+              <span className="settingsSectionIcon" aria-hidden="true"><History size={19} /></span>
+              <div>
+                <h2 id="security-activity-title">安全活动</h2>
+                <span>{securityEvents ? `共 ${securityEvents.total} 条记录` : '账号安全记录'}</span>
+              </div>
+            </header>
+
+            <div className="securityEventList" aria-label="近期安全活动">
+              {securityEvents === null && !securityEventError ? (
+                <div className="sessionListLoading">
+                  <LoaderCircle className="spin" size={18} />正在加载安全活动
+                </div>
+              ) : securityEvents?.items.length === 0 ? (
+                <div className="sessionListLoading">暂无安全活动</div>
+              ) : visibleSecurityEvents.map((event) => {
+                const description = describeSecurityEvent(event);
+                const EventIcon = event.eventType === 'login_failed'
+                  ? AlertTriangle
+                  : event.eventType === 'login_succeeded'
+                    ? LogIn
+                    : event.eventType === 'profile_updated'
+                      ? UserRound
+                      : event.eventType === 'password_changed'
+                        ? KeyRound
+                        : event.eventType === 'account_registered'
+                          ? ShieldCheck
+                          : LogOut;
+                return (
+                  <article className="securityEventRow" key={event.id}>
+                    <span
+                      className={`securityEventIcon${event.outcome === 'failure' ? ' failure' : ''}`}
+                      aria-hidden="true"
+                    >
+                      <EventIcon size={17} />
+                    </span>
+                    <div className="securityEventDetails">
+                      <header>
+                        <strong>{description.title}</strong>
+                        <span className={`securityEventOutcome ${event.outcome}`}>
+                          {event.outcome === 'failure' ? '已拦截' : '成功'}
+                        </span>
+                      </header>
+                      <small>{description.detail}</small>
+                      <div>
+                        <span><MonitorSmartphone size={13} />{event.deviceName}</span>
+                        <span><MapPin size={13} />{event.ipAddress || 'IP 未记录'}</span>
+                        <span><Clock3 size={13} />{formatSessionDate(event.createdAt)}</span>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+              {securityEvents && securityEvents.items.length > 6 && (
+                <button
+                  className="textButton sessionListToggle"
+                  type="button"
+                  onClick={() => setShowAllSecurityEvents((visible) => !visible)}
+                  aria-expanded={showAllSecurityEvents}
+                >
+                  {showAllSecurityEvents ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {showAllSecurityEvents
+                    ? '收起安全活动'
+                    : `展开其余 ${securityEvents.items.length - 6} 条记录`}
+                </button>
+              )}
+            </div>
+
+            {securityEventError && (
+              <div className="formError securityEventError" role="alert">{securityEventError}</div>
+            )}
+            {securityEvents && securityEvents.total > securityEvents.items.length && (
+              <p className="securityEventLimitNote">
+                已显示最近 {securityEvents.items.length} 条，共 {securityEvents.total} 条
+              </p>
+            )}
           </section>
         </div>
       </div>
