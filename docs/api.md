@@ -37,6 +37,8 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/knowledge-bases/:id/documents/stats` | Bearer token | Read document and chunk totals |
 | PATCH | `/api/v1/knowledge-bases/:id/documents/:documentId` | Bearer token | Update document source or processing state |
 | DELETE | `/api/v1/knowledge-bases/:id/documents/:documentId` | Bearer token | Disable a document record |
+| POST | `/api/v1/knowledge-bases/:id/documents/:documentId/content/preview` | Bearer token | Preview deterministic text chunking without changing data |
+| PUT | `/api/v1/knowledge-bases/:id/documents/:documentId/content` | Bearer token | Atomically replace all chunks with imported text |
 | POST | `/api/v1/knowledge-bases/:id/documents/:documentId/chunks` | Bearer token | Append a document chunk |
 | GET | `/api/v1/knowledge-bases/:id/documents/:documentId/chunks` | Bearer token | List and search ordered chunks |
 | PATCH | `/api/v1/knowledge-bases/:id/documents/:documentId/chunks/:chunkId` | Bearer token | Update chunk content or FastGPT metadata |
@@ -75,6 +77,19 @@ Message sequence numbers are assigned inside a transaction after locking the own
 Document records track file, URL, or text sources, MIME type, byte size, checksum, FastGPT Collection ID, processing status, chunk count, and failure details. Lists support `page`, `pageSize`, `search`, `status`, and the standard sort values. URL sources require a valid `sourceUri`.
 
 Chunks store ordered searchable content, optional token counts, and FastGPT Data IDs. Positions are allocated while locking the owning document, and `(document_id, position)` is unique. A database trigger derives each document's `chunk_count`; clients cannot set that count directly. Deleting a chunk closes the position gap inside the same transaction.
+
+Text content can be previewed and imported with the same deterministic paragraph-, line-, and sentence-aware chunker. Import requests accept 1-750,000 characters, a `chunkSize` from 200-4,000, a `chunkOverlap` from 0-1,000 that must remain smaller than the chunk size, and one of the supported text MIME types. Imports that would create more than 2,000 chunks are rejected.
+
+`PUT .../content` locks the owned document and replaces all old chunks in one transaction. It computes byte size and SHA-256 on the server, marks the document as `ready`, clears its previous processing error, and returns both the updated document and the same chunk summary used by preview. A rejected or failed import leaves the previous chunks unchanged.
+
+```json
+{
+  "content": "# 退款政策\n\n签收后七天内可以申请退款。",
+  "chunkSize": 1000,
+  "chunkOverlap": 100,
+  "mimeType": "text/markdown"
+}
+```
 
 Ownership is inherited through the composite `(knowledge_base_id, owner_id)` foreign key. Requests for another user's knowledge base return `KNOWLEDGE_BASE_NOT_FOUND` rather than exposing whether that resource exists.
 

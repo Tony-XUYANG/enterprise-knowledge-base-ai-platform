@@ -484,6 +484,102 @@ describe('authentication and AI app API', () => {
       .set('Authorization', `Bearer ${ownerAccessToken}`);
     expect(documentAfterChunkDelete.body.data.items[0].chunkCount).toBe(1);
 
+    const markDocumentFailed = await request(app)
+      .patch(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ status: 'failed', errorMessage: '旧的解析错误' });
+    expect(markDocumentFailed.status).toBe(200);
+
+    const crossUserContentPreview = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/content/preview`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`)
+      .send({ content: '不应读取其他用户的文档内容。' });
+    expect(crossUserContentPreview.status).toBe(404);
+    expect(crossUserContentPreview.body.error.code).toBe('DOCUMENT_NOT_FOUND');
+
+    const excessiveChunkImport = await request(app)
+      .put(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/content`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        content: 'x'.repeat(2201),
+        chunkSize: 200,
+        chunkOverlap: 199,
+      });
+    expect(excessiveChunkImport.status).toBe(400);
+    expect(excessiveChunkImport.body.error.code).toBe('DOCUMENT_CHUNK_LIMIT_EXCEEDED');
+
+    const chunksAfterRejectedImport = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(chunksAfterRejectedImport.body.data.total).toBe(1);
+    expect(chunksAfterRejectedImport.body.data.items[0].id).toBe(secondChunkId);
+
+    const importedContent = [
+      '退款申请适用于已完成签收且仍在售后期限内的订单。用户提交申请时，需要填写订单号和退款原因。',
+      '客服会核对订单状态、付款记录和商品情况。资料齐全的申请通常会在一个工作日内完成审核。',
+      '审核通过后，退款将原路退回。不同支付渠道的到账时间可能不同，最长不超过七个工作日。',
+      '如审核未通过，系统会保留失败原因，用户补充材料后可以再次提交申请。',
+      '企业客户如需批量处理退款，应联系客户成功经理并提供对应的合同编号。',
+    ].join('\n\n');
+
+    const contentPreviewResponse = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/content/preview`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        content: importedContent,
+        chunkSize: 200,
+        chunkOverlap: 30,
+        mimeType: 'text/markdown',
+      });
+    expect(contentPreviewResponse.status).toBe(200);
+    expect(contentPreviewResponse.body.data.chunkCount).toBeGreaterThan(1);
+    expect(contentPreviewResponse.body.data.chunks[0]).toMatchObject({ position: 1 });
+    expect(contentPreviewResponse.body.data.sizeBytes).toBe(Buffer.byteLength(importedContent, 'utf8'));
+
+    const contentImportResponse = await request(app)
+      .put(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/content`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        content: importedContent,
+        chunkSize: 200,
+        chunkOverlap: 30,
+        mimeType: 'text/markdown',
+      });
+    expect(contentImportResponse.status).toBe(200);
+    expect(contentImportResponse.body.data.summary).toEqual(contentPreviewResponse.body.data);
+    expect(contentImportResponse.body.data.document).toMatchObject({
+      status: 'ready',
+      errorMessage: null,
+      mimeType: 'text/markdown',
+      sizeBytes: Buffer.byteLength(importedContent, 'utf8'),
+      chunkCount: contentPreviewResponse.body.data.chunkCount,
+    });
+    expect(contentImportResponse.body.data.document.checksumSha256).toMatch(/^[0-9a-f]{64}$/);
+
+    const chunksAfterImport = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks?pageSize=100`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(chunksAfterImport.body.data.total).toBe(contentPreviewResponse.body.data.chunkCount);
+    expect(chunksAfterImport.body.data.items.map((chunk: { position: number }) => chunk.position))
+      .toEqual(Array.from({ length: chunksAfterImport.body.data.total }, (_, index) => index + 1));
+    expect(chunksAfterImport.body.data.items.some((chunk: { id: string }) => chunk.id === secondChunkId))
+      .toBe(false);
+    expect(chunksAfterImport.body.data.items[0].metadata).toMatchObject({
+      source: 'content_import',
+      chunkSize: 200,
+      chunkOverlap: 30,
+    });
+
+    const statsAfterContentImport = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/stats`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(statsAfterContentImport.body.data).toMatchObject({
+      ready: 1,
+      failed: 0,
+      chunks: contentPreviewResponse.body.data.chunkCount,
+      totalBytes: Buffer.byteLength(importedContent, 'utf8'),
+    });
+
     const disableDocumentResponse = await request(app)
       .delete(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`)
       .set('Authorization', `Bearer ${ownerAccessToken}`);

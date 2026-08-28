@@ -7,6 +7,16 @@ export const notFoundHandler: RequestHandler = (request, _response, next) => {
 };
 
 export const errorHandler: ErrorRequestHandler = (error, request, response, _next) => {
+  if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
+    response.status(413).json({
+      error: {
+        code: 'REQUEST_BODY_TOO_LARGE',
+        message: '请求体不能超过 4 MB',
+      },
+    });
+    return;
+  }
+
   if (error instanceof ZodError) {
     response.status(400).json({
       error: {

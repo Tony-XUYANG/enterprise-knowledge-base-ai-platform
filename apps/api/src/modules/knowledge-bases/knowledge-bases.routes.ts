@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { importKnowledgeDocumentContentSchema } from './knowledge-document-content.schemas.js';
+import {
+  importKnowledgeDocumentContent,
+  previewKnowledgeDocumentContent,
+} from './knowledge-document-content.service.js';
 import {
   createKnowledgeDocumentChunkSchema,
   knowledgeDocumentChunkIdSchema,
@@ -154,6 +159,32 @@ knowledgeBasesRouter.delete(
       knowledgeDocumentIdSchema.parse(request.params.documentId),
     );
     response.status(204).send();
+  },
+);
+
+knowledgeBasesRouter.post(
+  '/:knowledgeBaseId/documents/:documentId/content/preview',
+  async (request, response) => {
+    const preview = await previewKnowledgeDocumentContent(
+      authenticatedUserId(request),
+      knowledgeBaseIdSchema.parse(request.params.knowledgeBaseId),
+      knowledgeDocumentIdSchema.parse(request.params.documentId),
+      importKnowledgeDocumentContentSchema.parse(request.body),
+    );
+    response.json({ data: preview });
+  },
+);
+
+knowledgeBasesRouter.put(
+  '/:knowledgeBaseId/documents/:documentId/content',
+  async (request, response) => {
+    const result = await importKnowledgeDocumentContent(
+      authenticatedUserId(request),
+      knowledgeBaseIdSchema.parse(request.params.knowledgeBaseId),
+      knowledgeDocumentIdSchema.parse(request.params.documentId),
+      importKnowledgeDocumentContentSchema.parse(request.body),
+    );
+    response.json({ data: result });
   },
 );
 

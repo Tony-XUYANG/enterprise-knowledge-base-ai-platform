@@ -31,6 +31,7 @@ erDiagram
 - `app_knowledge_bases.owner_id` 配合复合外键，保证应用不能绑定其他所有者的知识库。
 - `knowledge_documents` 通过 `(knowledge_base_id, owner_id)` 复合外键继承知识库所有权，并记录来源、解析状态、分块数和 FastGPT Collection ID。
 - `knowledge_document_chunks` 保存有序正文和检索元数据；复合外键继续传递所有权，唯一位置约束保证文档内顺序，触发器自动同步文档分块数。
+- 文档正文导入在锁定所属文档后事务性替换全部分块，同时更新 MIME 类型、字节数、SHA-256、处理状态和错误信息；任一步失败都会保留原有内容。
 - 消息使用 `(conversation_id, sequence_no)` 唯一约束维持会话内顺序。
 - FastGPT API Key 只预留密文字段，应用层不得保存明文密钥。
 - JSONB 只承载可变扩展字段，核心关系仍使用普通列和外键表达。

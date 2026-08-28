@@ -118,6 +118,25 @@ export interface KnowledgeDocumentChunkList {
   total: number;
 }
 
+export interface DocumentContentChunkPreview {
+  position: number;
+  content: string;
+  characterCount: number;
+}
+
+export interface DocumentContentSummary {
+  chunkCount: number;
+  totalCharacters: number;
+  sizeBytes: number;
+  chunks: DocumentContentChunkPreview[];
+  previewTruncated: boolean;
+}
+
+export interface DocumentContentImportResult {
+  document: KnowledgeDocument;
+  summary: DocumentContentSummary;
+}
+
 export interface KnowledgeBaseList {
   items: KnowledgeBase[];
   page: number;

@@ -1992,6 +1992,12 @@ a {
   padding: 14px 18px;
 }
 
+.chunkToolbarActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .chunkError {
   margin: 14px 18px 0;
 }
@@ -2103,6 +2109,137 @@ a {
 
 .chunkEditorActions {
   margin: 2px -20px -20px;
+}
+
+.contentImportForm {
+  display: flex;
+  min-height: 0;
+  max-height: min(76vh, 760px);
+  flex-direction: column;
+}
+
+.contentImportBody {
+  display: grid;
+  min-height: 0;
+  gap: 17px;
+  overflow-y: auto;
+  padding: 18px 20px 20px;
+}
+
+.importSourceRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.fileSelectButton {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.selectedFileMeta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.selectedFileMeta strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedFileMeta small,
+.fieldCounter {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.contentImportForm textarea {
+  min-height: 180px;
+}
+
+.fieldCounter {
+  justify-self: end;
+}
+
+.importSettingsGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.contentImportPreview {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.contentImportPreview > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.contentImportPreview h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.contentImportPreview > header span,
+.contentImportPreview > footer {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.importPreviewList {
+  margin-top: 7px;
+}
+
+.importPreviewList article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border-bottom: 1px solid #e9eeec;
+  padding: 10px 0;
+}
+
+.importPreviewList p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #2f3e3a;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.importPreviewList small {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.contentImportPreview > footer {
+  padding-top: 8px;
+  text-align: right;
+}
+
+.replaceNotice {
+  margin-top: 12px;
+  border-left: 3px solid #d89b13;
+  background: #fff8e6;
+  padding: 9px 11px;
+  color: #74520a;
+  font-size: 12px;
+}
+
+.contentImportActions {
+  flex: 0 0 auto;
 }
 
 .relationDialog {
@@ -2967,6 +3104,15 @@ a {
     flex-direction: column;
   }
 
+  .chunkToolbarActions {
+    width: 100%;
+  }
+
+  .chunkToolbarActions button {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
   .chunkToolbar .searchBox {
     width: 100%;
   }
@@ -2992,6 +3138,32 @@ a {
 
   .chunkEditorActions {
     margin: 2px -16px -16px;
+  }
+
+  .contentImportForm {
+    max-height: calc(100vh - 94px);
+  }
+
+  .contentImportBody {
+    padding: 16px;
+  }
+
+  .importSettingsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .contentImportPreview > header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .importPreviewList article {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .importPreviewList small {
+    grid-column: 2;
   }
 
   .conversationDetailMeta {

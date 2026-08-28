@@ -7,7 +7,7 @@ import type {
   UpdateKnowledgeDocumentInput,
 } from './knowledge-documents.schemas.js';
 
-interface KnowledgeDocumentRow {
+export interface KnowledgeDocumentRow {
   id: string;
   knowledge_base_id: string;
   owner_id: string;
@@ -45,7 +45,7 @@ export interface KnowledgeDocument {
   updatedAt: string;
 }
 
-const documentColumns = `
+export const knowledgeDocumentColumns = `
   id, knowledge_base_id, owner_id, name, source_type, source_uri,
   mime_type, size_bytes, checksum_sha256, fastgpt_collection_id,
   status, chunk_count, error_message, metadata, created_at, updated_at
@@ -57,7 +57,7 @@ const documentSortExpressions: Record<ListKnowledgeDocumentsQuery['sort'], strin
   name_asc: 'name ASC, id ASC',
 };
 
-function mapDocument(row: KnowledgeDocumentRow): KnowledgeDocument {
+export function mapKnowledgeDocument(row: KnowledgeDocumentRow): KnowledgeDocument {
   return {
     id: row.id,
     knowledgeBaseId: row.knowledge_base_id,
@@ -122,7 +122,7 @@ export async function createKnowledgeDocument(
          )
          SELECT owned.id, owned.owner_id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb
            FROM owned
-         RETURNING ${documentColumns}
+         RETURNING ${knowledgeDocumentColumns}
        )
        SELECT * FROM inserted`,
       [
@@ -145,7 +145,7 @@ export async function createKnowledgeDocument(
     if (!document) {
       throw new AppError(404, 'KNOWLEDGE_BASE_NOT_FOUND', '知识库不存在');
     }
-    return mapDocument(document);
+    return mapKnowledgeDocument(document);
   } catch (error) {
     if (error instanceof AppError) throw error;
     return documentWriteError(error);
@@ -163,7 +163,7 @@ export async function listKnowledgeDocuments(
   const orderBy = documentSortExpressions[input.sort];
   const [itemsResult, countResult] = await Promise.all([
     query<KnowledgeDocumentRow>(
-      `SELECT ${documentColumns}
+      `SELECT ${knowledgeDocumentColumns}
          FROM knowledge_documents
         WHERE knowledge_base_id = $1
           AND owner_id = $2
@@ -195,7 +195,7 @@ export async function listKnowledgeDocuments(
   ]);
 
   return {
-    items: itemsResult.rows.map(mapDocument),
+    items: itemsResult.rows.map(mapKnowledgeDocument),
     page: input.page,
     pageSize: input.pageSize,
     total: countResult.rows[0]?.total ?? 0,
@@ -270,14 +270,14 @@ export async function updateKnowledgeDocument(
         WHERE id = $${values.length - 2}
           AND knowledge_base_id = $${values.length - 1}
           AND owner_id = $${values.length}
-      RETURNING ${documentColumns}`,
+      RETURNING ${knowledgeDocumentColumns}`,
       values,
     );
     const document = result.rows[0];
     if (!document) {
       throw new AppError(404, 'DOCUMENT_NOT_FOUND', '文档不存在');
     }
-    return mapDocument(document);
+    return mapKnowledgeDocument(document);
   } catch (error) {
     if (error instanceof AppError) throw error;
     return documentWriteError(error);

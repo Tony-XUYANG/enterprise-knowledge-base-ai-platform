@@ -1,13 +1,13 @@
 'use client';
 
-import { Archive, Ban, LoaderCircle, Trash2, X } from 'lucide-react';
+import { Archive, Ban, LoaderCircle, Replace, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
   appName: string;
   subjectLabel?: string;
-  variant?: 'disable' | 'archive' | 'delete';
+  variant?: 'disable' | 'archive' | 'delete' | 'replace';
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }
@@ -26,8 +26,9 @@ export function ConfirmDialog({
 
   const isArchive = variant === 'archive';
   const isDelete = variant === 'delete';
-  const ActionIcon = isDelete ? Trash2 : isArchive ? Archive : Ban;
-  const actionLabel = isDelete ? '删除' : isArchive ? '归档' : '停用';
+  const isReplace = variant === 'replace';
+  const ActionIcon = isDelete ? Trash2 : isArchive ? Archive : isReplace ? Replace : Ban;
+  const actionLabel = isDelete ? '删除' : isArchive ? '归档' : isReplace ? '覆盖' : '停用';
 
   async function confirm() {
     setSubmitting(true);
@@ -52,14 +53,16 @@ export function ConfirmDialog({
         <div className="confirmBody">
           <h2 id="confirm-title">{actionLabel}“{appName}”</h2>
           <p>
-            {isDelete
+            {isReplace
+              ? `覆盖后，${subjectLabel}的现有分块将被新内容替换。`
+              : isDelete
               ? `删除后${subjectLabel}无法恢复。`
               : `${actionLabel}后${subjectLabel}将保留数据，可以稍后重新启用。`}
           </p>
         </div>
         <footer className="dialogActions">
           <button className="secondaryButton" type="button" onClick={onClose} disabled={submitting}>取消</button>
-          <button className="dangerButton" type="button" onClick={confirm} disabled={submitting}>
+          <button className={isReplace ? 'primaryButton' : 'dangerButton'} type="button" onClick={confirm} disabled={submitting}>
             {submitting ? <LoaderCircle className="spin" size={18} /> : <ActionIcon size={18} />}
             {submitting ? `${actionLabel}中` : `确认${actionLabel}`}
           </button>
