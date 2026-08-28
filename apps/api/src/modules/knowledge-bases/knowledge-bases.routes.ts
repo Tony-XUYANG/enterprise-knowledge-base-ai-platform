@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
+import { searchKnowledgeBaseSchema } from './knowledge-base-search.schemas.js';
+import { searchKnowledgeBase } from './knowledge-base-search.service.js';
 import { importKnowledgeDocumentContentSchema } from './knowledge-document-content.schemas.js';
 import {
   importKnowledgeDocumentContent,
@@ -109,6 +111,15 @@ knowledgeBasesRouter.get('/:knowledgeBaseId/apps', async (request, response) => 
     knowledgeBaseIdSchema.parse(request.params.knowledgeBaseId),
   );
   response.json({ data: items });
+});
+
+knowledgeBasesRouter.post('/:knowledgeBaseId/search', async (request, response) => {
+  const result = await searchKnowledgeBase(
+    authenticatedUserId(request),
+    knowledgeBaseIdSchema.parse(request.params.knowledgeBaseId),
+    searchKnowledgeBaseSchema.parse(request.body),
+  );
+  response.json({ data: result });
 });
 
 knowledgeBasesRouter.post('/:knowledgeBaseId/documents', async (request, response) => {

@@ -30,6 +30,7 @@ import type {
   KnowledgeDocumentStatus,
 } from '@/lib/types';
 import { ConfirmDialog } from './confirm-dialog';
+import { KnowledgeBaseSearchDialog } from './knowledge-base-search-dialog';
 import { KnowledgeDocumentChunksDialog } from './knowledge-document-chunks-dialog';
 import {
   KnowledgeDocumentDialog,
@@ -121,6 +122,7 @@ export function KnowledgeBaseDocumentsDashboard({
   const [editingDocument, setEditingDocument] = useState<KnowledgeDocument | null>(null);
   const [disablingDocument, setDisablingDocument] = useState<KnowledgeDocument | null>(null);
   const [chunkDocument, setChunkDocument] = useState<KnowledgeDocument | null>(null);
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -250,10 +252,16 @@ export function KnowledgeBaseDocumentsDashboard({
           </div>
           <span>{data.total}</span>
         </div>
-        <button className="primaryButton" type="button" onClick={openCreateDialog} disabled={!knowledgeBase || knowledgeBase.status === 'disabled'}>
-          <CirclePlus size={18} />
-          添加文档
-        </button>
+        <div className="workspaceHeaderActions">
+          <button className="secondaryButton" type="button" onClick={() => setSearchDialogOpen(true)} disabled={!knowledgeBase || stats.chunks === 0}>
+            <Search size={18} />
+            检索测试
+          </button>
+          <button className="primaryButton" type="button" onClick={openCreateDialog} disabled={!knowledgeBase || knowledgeBase.status === 'disabled'}>
+            <CirclePlus size={18} />
+            添加文档
+          </button>
+        </div>
       </section>
 
       <WorkspaceStats
@@ -364,6 +372,12 @@ export function KnowledgeBaseDocumentsDashboard({
         knowledgeDocument={chunkDocument}
         onClose={() => setChunkDocument(null)}
         onChanged={() => setReloadKey((key) => key + 1)}
+      />
+      <KnowledgeBaseSearchDialog
+        open={searchDialogOpen}
+        knowledgeBaseId={knowledgeBaseId}
+        knowledgeBaseName={knowledgeBase?.name ?? '知识库'}
+        onClose={() => setSearchDialogOpen(false)}
       />
       <ConfirmDialog open={Boolean(disablingDocument)} appName={disablingDocument?.name ?? ''} subjectLabel="文档" onClose={() => setDisablingDocument(null)} onConfirm={disableSelectedDocument} />
       {toast && <div className="toast" role="status">{toast}</div>}

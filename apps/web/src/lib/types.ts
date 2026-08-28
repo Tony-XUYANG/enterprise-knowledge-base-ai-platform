@@ -153,6 +153,26 @@ export interface KnowledgeBaseStats {
   appBindings: number;
 }
 
+export interface KnowledgeBaseSearchItem {
+  chunkId: string;
+  documentId: string;
+  documentName: string;
+  sourceType: KnowledgeDocumentSourceType;
+  mimeType: string | null;
+  position: number;
+  content: string;
+  tokenCount: number | null;
+  score: number;
+  matchType: 'exact' | 'fuzzy';
+}
+
+export interface KnowledgeBaseSearchResult {
+  query: string;
+  items: KnowledgeBaseSearchItem[];
+  searchedChunks: number;
+  durationMs: number;
+}
+
 export interface KnowledgeBaseLinkedApp {
   id: string;
   name: string;

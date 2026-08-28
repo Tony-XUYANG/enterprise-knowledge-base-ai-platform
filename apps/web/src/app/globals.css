@@ -550,8 +550,15 @@ a {
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 20px;
   margin-bottom: 22px;
+}
+
+.workspaceHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .pageTitle {
@@ -2242,6 +2249,163 @@ a {
   flex: 0 0 auto;
 }
 
+.retrievalDialog {
+  width: min(100%, 760px);
+  overflow: hidden;
+}
+
+.retrievalForm {
+  display: grid;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 18px;
+}
+
+.retrievalQueryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.retrievalQueryRow .searchBox {
+  width: 100%;
+}
+
+.retrievalOptions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  align-items: end;
+  gap: 16px;
+}
+
+.retrievalThreshold {
+  display: grid;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.retrievalThreshold span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.retrievalThreshold strong {
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.retrievalThreshold input {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.compactField {
+  gap: 6px;
+}
+
+.retrievalError {
+  margin: 14px 18px 0;
+}
+
+.retrievalResults {
+  min-height: 310px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 0 18px;
+}
+
+.retrievalEmpty {
+  display: flex;
+  min-height: 310px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+
+.retrievalSummary {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.retrievalSummary strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.retrievalResult {
+  border-bottom: 1px solid #e9eeec;
+  padding: 14px 0;
+}
+
+.retrievalResult > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.retrievalDocument {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+}
+
+.retrievalDocument strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retrievalDocument code {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.retrievalScore {
+  min-width: 46px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  background: var(--primary-soft);
+  padding: 4px 7px;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.retrievalResult p {
+  margin: 9px 0 0;
+  color: #2f3e3a;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.retrievalResult footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
 .relationDialog {
   width: min(100%, 680px);
   overflow: hidden;
@@ -2709,6 +2873,15 @@ a {
     margin-bottom: 18px;
   }
 
+  .workspaceHeaderActions {
+    width: 100%;
+  }
+
+  .workspaceHeaderActions button {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
   .settingsLayout {
     grid-template-columns: 1fr;
     gap: 24px;
@@ -3156,6 +3329,35 @@ a {
     align-items: flex-start;
     flex-direction: column;
     gap: 3px;
+  }
+
+  .retrievalDialog {
+    max-height: calc(100vh - 28px);
+  }
+
+  .retrievalQueryRow {
+    grid-template-columns: 1fr;
+  }
+
+  .retrievalQueryRow .primaryButton {
+    width: 100%;
+  }
+
+  .retrievalOptions {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    gap: 12px;
+  }
+
+  .retrievalResults {
+    max-height: 52vh;
+    padding-inline: 16px;
+  }
+
+  .retrievalSummary {
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
   }
 
   .importPreviewList article {

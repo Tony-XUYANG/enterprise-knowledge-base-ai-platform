@@ -580,6 +580,49 @@ describe('authentication and AI app API', () => {
       totalBytes: Buffer.byteLength(importedContent, 'utf8'),
     });
 
+    const exactKnowledgeSearch = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/search`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ query: '原路退回', limit: 5, minScore: 0.15 });
+    expect(exactKnowledgeSearch.status).toBe(200);
+    expect(exactKnowledgeSearch.body.data).toMatchObject({
+      query: '原路退回',
+      searchedChunks: contentPreviewResponse.body.data.chunkCount,
+    });
+    expect(exactKnowledgeSearch.body.data.durationMs).toBeGreaterThanOrEqual(0);
+    expect(exactKnowledgeSearch.body.data.items[0]).toMatchObject({
+      documentId,
+      documentName: '退款政策.md',
+      matchType: 'exact',
+      score: 1,
+    });
+    expect(exactKnowledgeSearch.body.data.items[0].content).toContain('原路退回');
+
+    const fuzzyKnowledgeSearch = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/search`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ query: '退款原路返回', limit: 5, minScore: 0.2 });
+    expect(fuzzyKnowledgeSearch.status).toBe(200);
+    expect(fuzzyKnowledgeSearch.body.data.items[0]).toMatchObject({
+      documentId,
+      matchType: 'fuzzy',
+    });
+    expect(fuzzyKnowledgeSearch.body.data.items[0].score).toBeGreaterThanOrEqual(0.2);
+
+    const invalidKnowledgeSearch = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/search`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ query: '   ' });
+    expect(invalidKnowledgeSearch.status).toBe(400);
+    expect(invalidKnowledgeSearch.body.error.code).toBe('VALIDATION_ERROR');
+
+    const crossUserKnowledgeSearch = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/search`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`)
+      .send({ query: '退款' });
+    expect(crossUserKnowledgeSearch.status).toBe(404);
+    expect(crossUserKnowledgeSearch.body.error.code).toBe('KNOWLEDGE_BASE_NOT_FOUND');
+
     const disableDocumentResponse = await request(app)
       .delete(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`)
       .set('Authorization', `Bearer ${ownerAccessToken}`);
@@ -590,6 +633,14 @@ describe('authentication and AI app API', () => {
       .set('Authorization', `Bearer ${ownerAccessToken}`);
     expect(disabledDocumentList.status).toBe(200);
     expect(disabledDocumentList.body.data.total).toBe(1);
+
+    const searchAfterDocumentDisable = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/search`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ query: '退款' });
+    expect(searchAfterDocumentDisable.status).toBe(200);
+    expect(searchAfterDocumentDisable.body.data.searchedChunks).toBe(0);
+    expect(searchAfterDocumentDisable.body.data.items).toEqual([]);
 
     const searchKnowledgeBaseResponse = await request(app)
       .get('/api/v1/knowledge-bases?search=产品&page=1&pageSize=10&sort=name_asc')

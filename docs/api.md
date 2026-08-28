@@ -32,6 +32,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | PATCH | `/api/v1/knowledge-bases/:id` | Bearer token | Update one owned knowledge base |
 | DELETE | `/api/v1/knowledge-bases/:id` | Bearer token | Disable one owned knowledge base |
 | GET | `/api/v1/knowledge-bases/:id/apps` | Bearer token | List apps attached to a knowledge base |
+| POST | `/api/v1/knowledge-bases/:id/search` | Bearer token | Rank matching chunks across ready documents |
 | POST | `/api/v1/knowledge-bases/:id/documents` | Bearer token | Add a document record |
 | GET | `/api/v1/knowledge-bases/:id/documents` | Bearer token | List and filter document records |
 | GET | `/api/v1/knowledge-bases/:id/documents/stats` | Bearer token | Read document and chunk totals |
@@ -92,6 +93,20 @@ Text content can be previewed and imported with the same deterministic paragraph
 ```
 
 Ownership is inherited through the composite `(knowledge_base_id, owner_id)` foreign key. Requests for another user's knowledge base return `KNOWLEDGE_BASE_NOT_FOUND` rather than exposing whether that resource exists.
+
+## Knowledge-base retrieval test
+
+`POST /api/v1/knowledge-bases/:id/search` searches chunks from ready documents owned by the authenticated user. It combines exact substring matching with PostgreSQL trigram word and whole-text similarity, then returns a stable descending score from 0 to 1. Results include document identity, source type, MIME type, chunk position, content, token count, and whether the match was exact or fuzzy.
+
+The request accepts a 1-200 character `query`, `limit` from 1-20 (default 8), and `minScore` from 0-1 (default 0.15). The response also reports how many eligible chunks were scanned and server-side duration.
+
+```json
+{
+  "query": "退款原路返回",
+  "limit": 8,
+  "minScore": 0.15
+}
+```
 
 ## Overview aggregation
 
