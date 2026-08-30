@@ -17,6 +17,7 @@ import {
   MonitorSmartphone,
   Save,
   ShieldCheck,
+  ShieldAlert,
   Smartphone,
   Tablet,
   History,
@@ -287,8 +288,14 @@ export function AccountSecurity() {
           title: '登录失败',
           detail: event.metadata.reason === 'account_disabled'
             ? '已拦截停用账号的登录尝试'
+            : event.metadata.reason === 'account_locked'
+              ? '临时锁定期间拦截了新的登录尝试'
             : '已拦截凭据错误的登录尝试',
         };
+      case 'account_locked':
+        return { title: '账号已临时锁定', detail: '连续登录失败达到保护上限' };
+      case 'account_unlocked':
+        return { title: '账号锁定已解除', detail: '临时保护期结束，已恢复登录' };
       case 'profile_updated':
         return { title: '个人资料已更新', detail: '账号显示信息发生变更' };
       case 'password_changed':
@@ -492,6 +499,30 @@ export function AccountSecurity() {
               </span>
             </div>
 
+            <div
+              className={`loginProtectionStatus${sessionSummary?.loginProtection.status === 'locked' ? ' locked' : ''}`}
+              role="status"
+            >
+              {sessionSummary?.loginProtection.status === 'locked'
+                ? <ShieldAlert size={18} aria-hidden="true" />
+                : <ShieldCheck size={18} aria-hidden="true" />}
+              <span>
+                <strong>
+                  {sessionSummary?.loginProtection.status === 'locked'
+                    ? '账号已临时锁定'
+                    : '异常登录保护已启用'}
+                </strong>
+                <small>
+                  {sessionSummary?.loginProtection.status === 'locked'
+                    && sessionSummary.loginProtection.lockedUntil
+                    ? `已记录 ${sessionSummary.loginProtection.failedAttempts} 次失败，锁定至 ${formatSessionDate(sessionSummary.loginProtection.lockedUntil)}`
+                    : sessionSummary
+                      ? `${sessionSummary.loginProtection.failureWindowMinutes} 分钟内连续 ${sessionSummary.loginProtection.failureLimit} 次失败，将锁定 ${sessionSummary.loginProtection.lockoutMinutes} 分钟`
+                      : '正在读取账号保护策略'}
+                </small>
+              </span>
+            </div>
+
             <div className="sessionList" aria-label="活跃登录设备">
               {sessionSummary === null ? (
                 <div className="sessionListLoading"><LoaderCircle className="spin" size={18} />正在加载设备</div>
@@ -580,6 +611,10 @@ export function AccountSecurity() {
                 const description = describeSecurityEvent(event);
                 const EventIcon = event.eventType === 'login_failed'
                   ? AlertTriangle
+                  : event.eventType === 'account_locked'
+                    ? ShieldAlert
+                    : event.eventType === 'account_unlocked'
+                      ? ShieldCheck
                   : event.eventType === 'login_succeeded'
                     ? LogIn
                     : event.eventType === 'profile_updated'

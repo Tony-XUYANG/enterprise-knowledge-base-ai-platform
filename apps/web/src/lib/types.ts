@@ -8,7 +8,17 @@ export interface User {
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
+  loginProtection: LoginProtection;
   items: AuthSession[];
+}
+
+export interface LoginProtection {
+  status: 'protected' | 'locked';
+  failedAttempts: number;
+  failureLimit: number;
+  failureWindowMinutes: number;
+  lockoutMinutes: number;
+  lockedUntil: string | null;
 }
 
 export interface AuthSession {
@@ -27,6 +37,8 @@ export type SecurityEventType =
   | 'account_registered'
   | 'login_succeeded'
   | 'login_failed'
+  | 'account_locked'
+  | 'account_unlocked'
   | 'profile_updated'
   | 'password_changed'
   | 'session_revoked'

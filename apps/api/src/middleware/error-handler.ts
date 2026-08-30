@@ -32,6 +32,15 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, _nex
   }
 
   if (error instanceof AppError) {
+    if (
+      error.code === 'ACCOUNT_TEMPORARILY_LOCKED'
+      && error.details
+      && typeof error.details === 'object'
+      && 'retryAfterSeconds' in error.details
+      && typeof error.details.retryAfterSeconds === 'number'
+    ) {
+      response.setHeader('Retry-After', Math.ceil(error.details.retryAfterSeconds));
+    }
     response.status(error.status).json({
       error: {
         code: error.code,

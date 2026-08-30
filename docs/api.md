@@ -67,11 +67,19 @@ Refresh-token rotation updates the existing session row with a new token hash in
 
 Registration, login, refresh, and logout share the credential rate limiter. Authenticated profile, password, and session-management endpoints are excluded so normal security operations cannot exhaust the login budget.
 
+## Login protection
+
+Login protection is account-scoped in addition to the request rate limiter. Within the default 15-minute failure window, five consecutive invalid-password attempts lock the account for 15 minutes. The threshold, window, and lockout duration are configurable through `LOGIN_FAILURE_LIMIT`, `LOGIN_FAILURE_WINDOW_MINUTES`, and `LOGIN_LOCKOUT_MINUTES`.
+
+Attempts are serialized with a row lock so concurrent requests cannot bypass the threshold. Successful login and password changes clear the failure state. Unknown email addresses still receive the generic `INVALID_CREDENTIALS` response and execute a dummy bcrypt comparison to reduce account-enumeration timing differences.
+
+The request that reaches the threshold and every request during the lockout return HTTP `423`, error code `ACCOUNT_TEMPORARILY_LOCKED`, a `Retry-After` header, and safe `lockedUntil` / `retryAfterSeconds` details. `GET /api/v1/auth/sessions` includes `loginProtection`, which reports the effective policy and current protected or locked state.
+
 ## Security activity
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration, successful login, failed login for an existing account, profile updates, password changes, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

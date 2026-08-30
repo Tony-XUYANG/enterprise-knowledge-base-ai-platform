@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
+import { env } from '../src/config/env.js';
 import { pool } from '../src/db/pool.js';
 
 const suffix = randomUUID();
 const ownerEmail = `owner-${suffix}@example.com`;
 const outsiderEmail = `outsider-${suffix}@example.com`;
+const lockoutEmail = `lockout-${suffix}@example.com`;
 const password = 'Training9!Secure';
 const fastgptApiKey = 'fastgpt-test-secret-2026';
 const app = createApp();
@@ -20,20 +22,20 @@ describe('authentication and AI app API', () => {
     await pool.query(
       `DELETE FROM conversations
         WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail]],
     );
     await pool.query(
       `DELETE FROM ai_apps
         WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail]],
     );
     await pool.query(
       `DELETE FROM knowledge_bases
         WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail]],
     );
     await pool.query('DELETE FROM users WHERE email = ANY($1::varchar[])', [
-      [ownerEmail, outsiderEmail],
+      [ownerEmail, outsiderEmail, lockoutEmail],
     ]);
     await pool.end();
   });
@@ -153,6 +155,122 @@ describe('authentication and AI app API', () => {
     expect(outsiderRegistration.status).toBe(201);
     const outsiderAccessToken: string = outsiderRegistration.body.data.accessToken;
 
+    const lockoutRegistration = await request(app).post('/api/v1/auth/register').send({
+      email: lockoutEmail,
+      password,
+      displayName: '锁定保护测试',
+    });
+    expect(lockoutRegistration.status).toBe(201);
+
+    const concurrentFailures = await Promise.all(
+      Array.from({ length: env.LOGIN_FAILURE_LIMIT }, () => (
+        request(app).post('/api/v1/auth/login').send({
+          email: lockoutEmail,
+          password: 'WrongPassword9!',
+        })
+      )),
+    );
+    expect(concurrentFailures.filter((response) => response.status === 401))
+      .toHaveLength(env.LOGIN_FAILURE_LIMIT - 1);
+    const lockingLogin = concurrentFailures.find((response) => response.status === 423);
+    expect(lockingLogin).toBeDefined();
+    if (!lockingLogin) throw new Error('Expected one login attempt to lock the account');
+    expect(lockingLogin.status).toBe(423);
+    expect(lockingLogin.headers['retry-after']).toBe(String(env.LOGIN_LOCKOUT_MINUTES * 60));
+    expect(lockingLogin.body.error).toMatchObject({
+      code: 'ACCOUNT_TEMPORARILY_LOCKED',
+      details: {
+        lockedUntil: expect.any(String),
+        retryAfterSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
+      },
+    });
+
+    const correctPasswordDuringLockout = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: lockoutEmail, password });
+    expect(correctPasswordDuringLockout.status).toBe(423);
+    expect(correctPasswordDuringLockout.body.error.code).toBe('ACCOUNT_TEMPORARILY_LOCKED');
+    expect(correctPasswordDuringLockout.body.data).toBeUndefined();
+
+    const lockedUser = await pool.query<{
+      failed_login_attempts: number;
+      locked_until: Date | null;
+    }>(
+      'SELECT failed_login_attempts, locked_until FROM users WHERE email = $1',
+      [lockoutEmail],
+    );
+    expect(lockedUser.rows[0]).toMatchObject({
+      failed_login_attempts: env.LOGIN_FAILURE_LIMIT,
+      locked_until: expect.any(Date),
+    });
+
+    await pool.query(
+      `UPDATE users
+          SET locked_until = CURRENT_TIMESTAMP - INTERVAL '1 second'
+        WHERE email = $1`,
+      [lockoutEmail],
+    );
+    const loginAfterLockout = await request(app).post('/api/v1/auth/login').send({
+      email: lockoutEmail,
+      password,
+    });
+    expect(loginAfterLockout.status).toBe(200);
+
+    const protectionSummary = await request(app)
+      .get('/api/v1/auth/sessions')
+      .set('Authorization', `Bearer ${loginAfterLockout.body.data.accessToken}`);
+    expect(protectionSummary.status).toBe(200);
+    expect(protectionSummary.body.data.loginProtection).toEqual({
+      status: 'protected',
+      failedAttempts: 0,
+      failureLimit: env.LOGIN_FAILURE_LIMIT,
+      failureWindowMinutes: env.LOGIN_FAILURE_WINDOW_MINUTES,
+      lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES,
+      lockedUntil: null,
+    });
+
+    const lockoutEvents = await request(app)
+      .get('/api/v1/auth/security-events?limit=20')
+      .set('Authorization', `Bearer ${loginAfterLockout.body.data.accessToken}`);
+    expect(lockoutEvents.status).toBe(200);
+    expect(lockoutEvents.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'account_locked',
+        outcome: 'failure',
+        metadata: expect.objectContaining({
+          reason: 'too_many_attempts',
+          failedAttempts: env.LOGIN_FAILURE_LIMIT,
+          remainingAttempts: 0,
+        }),
+      }),
+      expect.objectContaining({
+        eventType: 'account_unlocked',
+        outcome: 'success',
+        metadata: { reason: 'lockout_expired' },
+      }),
+      expect.objectContaining({
+        eventType: 'login_failed',
+        outcome: 'failure',
+        metadata: expect.objectContaining({ reason: 'account_locked' }),
+      }),
+    ]));
+
+    const protectedUser = await pool.query<{
+      failed_login_attempts: number;
+      last_failed_login_at: Date | null;
+      locked_until: Date | null;
+    }>(
+      `SELECT failed_login_attempts, last_failed_login_at, locked_until
+         FROM users
+        WHERE email = $1`,
+      [lockoutEmail],
+    );
+    expect(protectedUser.rows[0]).toEqual({
+      failed_login_attempts: 0,
+      last_failed_login_at: null,
+      locked_until: null,
+    });
+
     const ownerSecurityEvents = await request(app)
       .get('/api/v1/auth/security-events?limit=10')
       .set('Authorization', `Bearer ${ownerAccessToken}`);
@@ -170,7 +288,7 @@ describe('authentication and AI app API', () => {
       expect.objectContaining({
         eventType: 'login_failed',
         outcome: 'failure',
-        metadata: { reason: 'invalid_credentials' },
+        metadata: expect.objectContaining({ reason: 'invalid_credentials' }),
       }),
     ]));
     expect(ownerSecurityEvents.body.data.items[0]).toMatchObject({

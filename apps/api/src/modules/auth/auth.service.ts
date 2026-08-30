@@ -34,6 +34,12 @@ interface UserRow {
   status: 'active' | 'disabled';
 }
 
+interface LoginUserRow extends UserRow {
+  failed_login_attempts: number;
+  last_failed_login_at: Date | null;
+  locked_until: Date | null;
+}
+
 interface RefreshSessionRow extends UserRow {
   refresh_token_id: string;
 }
@@ -74,7 +80,17 @@ interface IssuedSession {
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
+  loginProtection: LoginProtection;
   items: AuthSession[];
+}
+
+export interface LoginProtection {
+  status: 'protected' | 'locked';
+  failedAttempts: number;
+  failureLimit: number;
+  failureWindowMinutes: number;
+  lockoutMinutes: number;
+  lockedUntil: string | null;
 }
 
 export interface AuthSession {
@@ -87,6 +103,30 @@ export interface AuthSession {
   expiresAt: string;
   createdAt: string;
   current: boolean;
+}
+
+type LoginAttemptResult =
+  | { kind: 'success'; result: AuthResult }
+  | { kind: 'invalid' }
+  | { kind: 'disabled' }
+  | { kind: 'locked'; lockedUntil: Date; retryAfterSeconds: number };
+
+const dummyPasswordHash = '$2b$12$nN55PR.IzlfSe7z6Pki2uup7PkPymPOUq8AQbKSy6jGiQyNl0RZQG';
+
+function addMinutes(value: Date, minutes: number): Date {
+  return new Date(value.getTime() + minutes * 60_000);
+}
+
+function lockoutError(lockedUntil: Date, retryAfterSeconds: number): AppError {
+  return new AppError(
+    423,
+    'ACCOUNT_TEMPORARILY_LOCKED',
+    `登录失败次数过多，账号已临时锁定 ${env.LOGIN_LOCKOUT_MINUTES} 分钟`,
+    {
+      lockedUntil: lockedUntil.toISOString(),
+      retryAfterSeconds,
+    },
+  );
 }
 
 async function getRoles(client: PoolClient, userId: string): Promise<string[]> {
@@ -194,42 +234,126 @@ export async function login(
   input: LoginInput,
   context: SessionContext,
 ): Promise<AuthResult> {
-  const userResult = await query<UserRow>(
-    `SELECT id, email, password_hash, display_name, status
-       FROM users
-      WHERE email = $1`,
-    [input.email],
-  );
-  const user = userResult.rows[0];
+  const attempt = await withTransaction<LoginAttemptResult>(async (client) => {
+    const userResult = await client.query<LoginUserRow>(
+      `SELECT id, email, password_hash, display_name, status,
+              failed_login_attempts, last_failed_login_at, locked_until
+         FROM users
+        WHERE email = $1
+        FOR UPDATE`,
+      [input.email],
+    );
+    const user = userResult.rows[0];
 
-  if (!user) {
-    throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
-  }
+    if (!user) {
+      await verifyPassword(input.password, dummyPasswordHash);
+      return { kind: 'invalid' };
+    }
 
-  if (!(await verifyPassword(input.password, user.password_hash))) {
-    await recordSecurityEvent({
-      userId: user.id,
-      eventType: 'login_failed',
-      outcome: 'failure',
-      context,
-      metadata: { reason: 'invalid_credentials' },
-    });
-    throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
-  }
+    const now = new Date();
+    if (user.locked_until && user.locked_until > now) {
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((user.locked_until.getTime() - now.getTime()) / 1000),
+      );
+      await recordSecurityEvent({
+        userId: user.id,
+        eventType: 'login_failed',
+        outcome: 'failure',
+        context,
+        metadata: {
+          reason: 'account_locked',
+          lockedUntil: user.locked_until.toISOString(),
+          retryAfterSeconds,
+        },
+      }, client);
+      return {
+        kind: 'locked',
+        lockedUntil: user.locked_until,
+        retryAfterSeconds,
+      };
+    }
 
-  if (user.status !== 'active') {
-    await recordSecurityEvent({
-      userId: user.id,
-      eventType: 'login_failed',
-      outcome: 'failure',
-      context,
-      metadata: { reason: 'account_disabled' },
-    });
-    throw new AppError(403, 'USER_DISABLED', '账号已被停用');
-  }
+    const lockExpired = user.locked_until !== null;
+    if (lockExpired) {
+      await client.query(
+        `UPDATE users
+            SET failed_login_attempts = 0,
+                last_failed_login_at = NULL,
+                locked_until = NULL
+          WHERE id = $1`,
+        [user.id],
+      );
+      await recordSecurityEvent({
+        userId: user.id,
+        eventType: 'account_unlocked',
+        outcome: 'success',
+        context,
+        metadata: { reason: 'lockout_expired' },
+      }, client);
+    }
 
-  return withTransaction(async (client) => {
-    await client.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = $1', [user.id]);
+    if (!(await verifyPassword(input.password, user.password_hash))) {
+      const failureWindowStartedAt = addMinutes(now, -env.LOGIN_FAILURE_WINDOW_MINUTES);
+      const withinFailureWindow = !lockExpired
+        && user.last_failed_login_at !== null
+        && user.last_failed_login_at >= failureWindowStartedAt;
+      const failedAttempts = withinFailureWindow ? user.failed_login_attempts + 1 : 1;
+      const lockedUntil = failedAttempts >= env.LOGIN_FAILURE_LIMIT
+        ? addMinutes(now, env.LOGIN_LOCKOUT_MINUTES)
+        : null;
+
+      await client.query(
+        `UPDATE users
+            SET failed_login_attempts = $2,
+                last_failed_login_at = $3,
+                locked_until = $4
+          WHERE id = $1`,
+        [user.id, failedAttempts, now, lockedUntil],
+      );
+      await recordSecurityEvent({
+        userId: user.id,
+        eventType: lockedUntil ? 'account_locked' : 'login_failed',
+        outcome: 'failure',
+        context,
+        metadata: {
+          reason: lockedUntil ? 'too_many_attempts' : 'invalid_credentials',
+          failedAttempts,
+          remainingAttempts: Math.max(0, env.LOGIN_FAILURE_LIMIT - failedAttempts),
+          lockedUntil: lockedUntil?.toISOString() ?? null,
+        },
+      }, client);
+
+      if (lockedUntil) {
+        return {
+          kind: 'locked',
+          lockedUntil,
+          retryAfterSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
+        };
+      }
+      return { kind: 'invalid' };
+    }
+
+    if (user.status !== 'active') {
+      await recordSecurityEvent({
+        userId: user.id,
+        eventType: 'login_failed',
+        outcome: 'failure',
+        context,
+        metadata: { reason: 'account_disabled' },
+      }, client);
+      return { kind: 'disabled' };
+    }
+
+    await client.query(
+      `UPDATE users
+          SET last_login_at = CURRENT_TIMESTAMP,
+              failed_login_attempts = 0,
+              last_failed_login_at = NULL,
+              locked_until = NULL
+        WHERE id = $1`,
+      [user.id],
+    );
     const roles = await getRoles(client, user.id);
     const issuedSession = await issueSession(client, user, roles, context);
     await recordSecurityEvent({
@@ -238,9 +362,23 @@ export async function login(
       outcome: 'success',
       context,
       actorSessionId: issuedSession.sessionId,
+      metadata: {
+        failedAttemptsCleared: lockExpired ? 0 : user.failed_login_attempts,
+      },
     }, client);
-    return issuedSession.result;
+    return { kind: 'success', result: issuedSession.result };
   });
+
+  switch (attempt.kind) {
+    case 'success':
+      return attempt.result;
+    case 'disabled':
+      throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+    case 'locked':
+      throw lockoutError(attempt.lockedUntil, attempt.retryAfterSeconds);
+    case 'invalid':
+      throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
+  }
 }
 
 export async function refreshSession(refreshToken: string): Promise<AuthResult> {
@@ -388,10 +526,15 @@ export async function changePassword(
     }
 
     const passwordHash = await hashPassword(input.newPassword);
-    await client.query('UPDATE users SET password_hash = $1 WHERE id = $2', [
-      passwordHash,
-      userId,
-    ]);
+    await client.query(
+      `UPDATE users
+          SET password_hash = $1,
+              failed_login_attempts = 0,
+              last_failed_login_at = NULL,
+              locked_until = NULL
+        WHERE id = $2`,
+      [passwordHash, userId],
+    );
     const revokedSessions = await client.query(
       `UPDATE refresh_tokens
           SET revoked_at = CURRENT_TIMESTAMP
@@ -466,8 +609,14 @@ export async function getSessionSummary(
   const userResult = await query<{
     status: 'active' | 'disabled';
     last_login_at: Date | null;
+    failed_login_attempts: number;
+    last_failed_login_at: Date | null;
+    locked_until: Date | null;
   }>(
-    'SELECT status, last_login_at FROM users WHERE id = $1',
+    `SELECT status, last_login_at, failed_login_attempts,
+            last_failed_login_at, locked_until
+       FROM users
+      WHERE id = $1`,
     [userId],
   );
   const user = userResult.rows[0];
@@ -499,10 +648,23 @@ export async function getSessionSummary(
     createdAt: session.created_at.toISOString(),
     current: session.id === currentSessionId,
   })).sort((left, right) => Number(right.current) - Number(left.current));
+  const now = new Date();
+  const lockActive = user.locked_until !== null && user.locked_until > now;
+  const failureWindowStartedAt = addMinutes(now, -env.LOGIN_FAILURE_WINDOW_MINUTES);
+  const failureWindowActive = user.last_failed_login_at !== null
+    && user.last_failed_login_at >= failureWindowStartedAt;
 
   return {
     activeSessions: items.length,
     lastLoginAt: user.last_login_at?.toISOString() ?? null,
+    loginProtection: {
+      status: lockActive ? 'locked' : 'protected',
+      failedAttempts: lockActive || failureWindowActive ? user.failed_login_attempts : 0,
+      failureLimit: env.LOGIN_FAILURE_LIMIT,
+      failureWindowMinutes: env.LOGIN_FAILURE_WINDOW_MINUTES,
+      lockoutMinutes: env.LOGIN_LOCKOUT_MINUTES,
+      lockedUntil: lockActive ? user.locked_until?.toISOString() ?? null : null,
+    },
     items,
   };
 }

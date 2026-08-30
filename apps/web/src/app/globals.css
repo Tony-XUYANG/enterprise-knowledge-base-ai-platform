@@ -780,6 +780,46 @@ a {
   margin-top: 18px;
 }
 
+.loginProtectionStatus {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 18px;
+  border-left: 3px solid var(--primary);
+  background: var(--primary-soft);
+  padding: 10px 12px;
+}
+
+.loginProtectionStatus > svg {
+  flex: 0 0 18px;
+  margin-top: 1px;
+  color: var(--primary-hover);
+}
+
+.loginProtectionStatus > span {
+  display: grid;
+  min-width: 0;
+}
+
+.loginProtectionStatus strong {
+  font-size: 12px;
+}
+
+.loginProtectionStatus small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.loginProtectionStatus.locked {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.loginProtectionStatus.locked > svg {
+  color: var(--danger);
+}
+
 .sessionList {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);

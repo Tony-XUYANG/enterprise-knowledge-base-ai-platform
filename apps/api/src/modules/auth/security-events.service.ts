@@ -8,6 +8,8 @@ export type SecurityEventType =
   | 'account_registered'
   | 'login_succeeded'
   | 'login_failed'
+  | 'account_locked'
+  | 'account_unlocked'
   | 'profile_updated'
   | 'password_changed'
   | 'session_revoked'
