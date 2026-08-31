@@ -21,6 +21,7 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
+  PASSWORD_HISTORY_LIMIT: z.coerce.number().int().min(2).max(10).default(5),
   LOGIN_FAILURE_LIMIT: z.coerce.number().int().min(3).max(20).default(5),
   LOGIN_FAILURE_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
   LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),

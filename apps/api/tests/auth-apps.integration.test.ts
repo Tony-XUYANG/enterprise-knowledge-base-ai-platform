@@ -102,6 +102,15 @@ describe('authentication and AI app API', () => {
 
     const ownerAccessToken: string = ownerRegistration.body.data.accessToken;
     const originalRefreshToken: string = ownerRegistration.body.data.refreshToken;
+    const initialPasswordHistory = await pool.query<{ password_hash: string }>(
+      `SELECT h.password_hash
+         FROM user_password_history h
+         JOIN users u ON u.id = h.user_id
+        WHERE u.email = $1`,
+      [ownerEmail],
+    );
+    expect(initialPasswordHistory.rows).toHaveLength(1);
+    expect(initialPasswordHistory.rows[0]!.password_hash).not.toContain(password);
 
     const sessionlessAccessToken = await createAccessToken({
       userId: ownerRegistration.body.data.user.id,
@@ -1236,6 +1245,18 @@ describe('authentication and AI app API', () => {
     expect(accessAfterPasswordChange.status).toBe(401);
     expect(accessAfterPasswordChange.body.error.code).toBe('SESSION_REVOKED');
 
+    const passwordHistoryAfterChange = await pool.query<{ password_hash: string }>(
+      `SELECT h.password_hash
+         FROM user_password_history h
+         JOIN users u ON u.id = h.user_id
+        WHERE u.email = $1
+        ORDER BY h.created_at DESC, h.id DESC`,
+      [ownerEmail],
+    );
+    expect(passwordHistoryAfterChange.rows).toHaveLength(2);
+    expect(JSON.stringify(passwordHistoryAfterChange.rows)).not.toContain(password);
+    expect(JSON.stringify(passwordHistoryAfterChange.rows)).not.toContain(newPassword);
+
     for (const refreshToken of [
       firstPasswordChangeRefreshToken,
       secondPasswordChangeRefreshToken,
@@ -1263,6 +1284,26 @@ describe('authentication and AI app API', () => {
     expect(newPasswordLogin.status).toBe(200);
     const firstSessionAccessToken: string = newPasswordLogin.body.data.accessToken;
     const firstSessionRefreshToken: string = newPasswordLogin.body.data.refreshToken;
+
+    const recentPasswordReuse = await request(app)
+      .patch('/api/v1/auth/password')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`)
+      .send({ currentPassword: newPassword, newPassword: password });
+    expect(recentPasswordReuse.status).toBe(400);
+    expect(recentPasswordReuse.body.error.code).toBe('PASSWORD_RECENTLY_USED');
+
+    const accessAfterRejectedReuse = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(accessAfterRejectedReuse.status).toBe(200);
+    const passwordHistoryAfterRejectedReuse = await pool.query<{ total: string }>(
+      `SELECT count(*)::text AS total
+         FROM user_password_history h
+         JOIN users u ON u.id = h.user_id
+        WHERE u.email = $1`,
+      [ownerEmail],
+    );
+    expect(Number(passwordHistoryAfterRejectedReuse.rows[0]!.total)).toBe(2);
 
     const additionalSessionLogin = await request(app)
       .post('/api/v1/auth/login')

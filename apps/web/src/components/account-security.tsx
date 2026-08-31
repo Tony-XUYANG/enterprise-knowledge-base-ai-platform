@@ -463,7 +463,11 @@ export function AccountSecurity() {
 
             <div className="securityNotice">
               <ShieldCheck size={18} aria-hidden="true" />
-              <span><strong>会话保护</strong><small>更新后，所有设备都需要使用新密码重新登录。</small></span>
+              <span>
+                <strong>密码与会话保护</strong>
+                <small>新密码不能使用近期密码。</small>
+                <small>更新后，所有设备都需要使用新密码重新登录。</small>
+              </span>
             </div>
 
             {error && <div className="formError" role="alert">{error}</div>}

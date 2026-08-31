@@ -22,6 +22,7 @@ erDiagram
     CONVERSATIONS ||--o{ MESSAGES : contains
     USERS ||--o{ REFRESH_TOKENS : authenticates
     USERS ||--o{ SECURITY_EVENTS : audits
+    USERS ||--o{ USER_PASSWORD_HISTORY : retains
 ```
 
 ## 关键决策
@@ -46,6 +47,7 @@ erDiagram
 - 安全事件查询始终以 `user_id` 限定所有者；密码、令牌、API Key 和请求正文不进入审计元数据。
 - `users.failed_login_attempts`、`last_failed_login_at` 和 `locked_until` 组成账号级异常登录保护；登录事务使用行锁串行化同一账号的并发尝试，避免竞态条件绕过锁定阈值。
 - 失败窗口外的旧计数自动失效，锁定期结束后在下一次登录尝试中事务性解锁；成功登录和修改密码均会清零失败状态。
+- `user_password_history` 按用户保存有序 bcrypt 哈希，迁移时以当前密码哈希回填已有账号，注册时写入首条记录。修改密码在用户行锁和同一事务内完成历史比对、新哈希写入、超额记录清理与全会话撤销；默认保留最新 5 条，可配置为 2-10 条，绝不保存明文密码。
 - JSONB 只承载可变扩展字段，核心关系仍使用普通列和外键表达。
 - 删除用户、应用等核心数据默认受限，避免级联误删；会话删除时才级联删除消息。
 

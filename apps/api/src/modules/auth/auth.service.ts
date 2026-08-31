@@ -217,6 +217,11 @@ export async function register(
       'INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)',
       [user.id, memberRole.id],
     );
+    await client.query(
+      `INSERT INTO user_password_history (user_id, password_hash)
+       VALUES ($1, $2)`,
+      [user.id, passwordHash],
+    );
 
     const issuedSession = await issueSession(client, user, ['member'], context);
     await recordSecurityEvent({
@@ -525,6 +530,25 @@ export async function changePassword(
       );
     }
 
+    const passwordHistory = await client.query<{ password_hash: string }>(
+      `SELECT password_hash
+         FROM user_password_history
+        WHERE user_id = $1
+          AND password_hash <> $2
+        ORDER BY created_at DESC, id DESC
+        LIMIT $3`,
+      [userId, user.password_hash, env.PASSWORD_HISTORY_LIMIT - 1],
+    );
+    for (const historicalPassword of passwordHistory.rows) {
+      if (await verifyPassword(input.newPassword, historicalPassword.password_hash)) {
+        throw new AppError(
+          400,
+          'PASSWORD_RECENTLY_USED',
+          `新密码不能与最近 ${env.PASSWORD_HISTORY_LIMIT} 个密码重复`,
+        );
+      }
+    }
+
     const passwordHash = await hashPassword(input.newPassword);
     await client.query(
       `UPDATE users
@@ -534,6 +558,23 @@ export async function changePassword(
               locked_until = NULL
         WHERE id = $2`,
       [passwordHash, userId],
+    );
+    await client.query(
+      `INSERT INTO user_password_history (user_id, password_hash)
+       VALUES ($1, $2)`,
+      [userId, passwordHash],
+    );
+    await client.query(
+      `DELETE FROM user_password_history
+        WHERE user_id = $1
+          AND id NOT IN (
+            SELECT id
+              FROM user_password_history
+             WHERE user_id = $1
+             ORDER BY created_at DESC, id DESC
+             LIMIT $2
+          )`,
+      [userId, env.PASSWORD_HISTORY_LIMIT],
     );
     const revokedSessions = await client.query(
       `UPDATE refresh_tokens
@@ -548,7 +589,10 @@ export async function changePassword(
       outcome: 'success',
       context,
       actorSessionId,
-      metadata: { revokedSessions: revokedSessions.rowCount ?? 0 },
+      metadata: {
+        revokedSessions: revokedSessions.rowCount ?? 0,
+        passwordHistoryLimit: env.PASSWORD_HISTORY_LIMIT,
+      },
     }, client);
   });
 }

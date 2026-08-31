@@ -79,6 +79,12 @@ Attempts are serialized with a row lock so concurrent requests cannot bypass the
 
 The request that reaches the threshold and every request during the lockout return HTTP `423`, error code `ACCOUNT_TEMPORARILY_LOCKED`, a `Retry-After` header, and safe `lockedUntil` / `retryAfterSeconds` details. `GET /api/v1/auth/sessions` includes `loginProtection`, which reports the effective policy and current protected or locked state.
 
+## Password history
+
+`PATCH /api/v1/auth/password` rejects the current password with `PASSWORD_UNCHANGED` and rejects any other retained password with `PASSWORD_RECENTLY_USED`. The default `PASSWORD_HISTORY_LIMIT=5` covers the new password candidate against the current password plus the four preceding passwords; the limit accepts values from 2-10.
+
+The user row is locked while the current password, strength policy, and retained bcrypt hashes are checked. A successful change writes the new hash, prunes older history, clears login-failure state, records the security event, and revokes every device session in the same transaction. A rejected change leaves the password, history, and sessions untouched. Only bcrypt hashes are retained; plaintext passwords are never stored or returned.
+
 ## Security activity
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
@@ -160,7 +166,7 @@ The overview endpoint is intended to back the default workspace entry page witho
 
 ## Register example
 
-Registration passwords must contain 12-72 characters, fit within bcrypt's 72-byte UTF-8 limit, use at least three of uppercase letters, lowercase letters, numbers, and symbols, avoid common or predictable patterns, and exclude the submitted name and email prefix. Login remains compatible with accounts created before this policy.
+Registration passwords must contain 12-72 characters, fit within bcrypt's 72-byte UTF-8 limit, use at least three of uppercase letters, lowercase letters, numbers, and symbols, avoid common or predictable patterns, and exclude the submitted name and email prefix. Login remains compatible with accounts created before this policy. Password changes apply the same strength policy and also reject retained recent passwords.
 
 ```powershell
 $body = @{
