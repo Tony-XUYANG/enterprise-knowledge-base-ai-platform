@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { pool } from '../src/db/pool.js';
+import { createAccessToken } from '../src/security/tokens.js';
 
 const suffix = randomUUID();
 const ownerEmail = `owner-${suffix}@example.com`;
@@ -101,6 +102,16 @@ describe('authentication and AI app API', () => {
 
     const ownerAccessToken: string = ownerRegistration.body.data.accessToken;
     const originalRefreshToken: string = ownerRegistration.body.data.refreshToken;
+
+    const sessionlessAccessToken = await createAccessToken({
+      userId: ownerRegistration.body.data.user.id,
+      roles: ['member'],
+    });
+    const sessionlessAccess = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${sessionlessAccessToken}`);
+    expect(sessionlessAccess.status).toBe(401);
+    expect(sessionlessAccess.body.error.code).toBe('INVALID_ACCESS_TOKEN');
 
     const meResponse = await request(app)
       .get('/api/v1/auth/me')
@@ -1135,6 +1146,7 @@ describe('authentication and AI app API', () => {
     });
     expect(refreshResponse.status).toBe(200);
     expect(refreshResponse.body.data.refreshToken).not.toBe(originalRefreshToken);
+    const rotatedAccessToken: string = refreshResponse.body.data.accessToken;
     const rotatedRefreshToken: string = refreshResponse.body.data.refreshToken;
     const sessionAfterRotation = await pool.query<{ id: string }>(
       `SELECT rt.id
@@ -1144,6 +1156,11 @@ describe('authentication and AI app API', () => {
       [ownerEmail],
     );
     expect(sessionAfterRotation.rows).toEqual(sessionBeforeRotation.rows);
+
+    const accessAfterRotation = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${rotatedAccessToken}`);
+    expect(accessAfterRotation.status).toBe(200);
 
     const replayResponse = await request(app).post('/api/v1/auth/refresh').send({
       refreshToken: originalRefreshToken,
@@ -1156,6 +1173,12 @@ describe('authentication and AI app API', () => {
     });
     expect(logoutResponse.status).toBe(204);
 
+    const accessAfterLogout = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${rotatedAccessToken}`);
+    expect(accessAfterLogout.status).toBe(401);
+    expect(accessAfterLogout.body.error.code).toBe('SESSION_REVOKED');
+
     const refreshAfterLogout = await request(app).post('/api/v1/auth/refresh').send({
       refreshToken: rotatedRefreshToken,
     });
@@ -1166,6 +1189,8 @@ describe('authentication and AI app API', () => {
       password,
     });
     expect(firstPasswordChangeSession.status).toBe(200);
+    const passwordChangeAccessToken: string =
+      firstPasswordChangeSession.body.data.accessToken;
     const firstPasswordChangeRefreshToken: string =
       firstPasswordChangeSession.body.data.refreshToken;
 
@@ -1179,21 +1204,21 @@ describe('authentication and AI app API', () => {
 
     const wrongCurrentPassword = await request(app)
       .patch('/api/v1/auth/password')
-      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .set('Authorization', `Bearer ${passwordChangeAccessToken}`)
       .send({ currentPassword: 'WrongPassword9!', newPassword: 'Quasar!Maple7Bridge' });
     expect(wrongCurrentPassword.status).toBe(400);
     expect(wrongCurrentPassword.body.error.code).toBe('CURRENT_PASSWORD_INCORRECT');
 
     const weakNewPassword = await request(app)
       .patch('/api/v1/auth/password')
-      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .set('Authorization', `Bearer ${passwordChangeAccessToken}`)
       .send({ currentPassword: password, newPassword: 'Password123!' });
     expect(weakNewPassword.status).toBe(400);
     expect(weakNewPassword.body.error.code).toBe('PASSWORD_POLICY_VIOLATION');
 
     const unchangedPassword = await request(app)
       .patch('/api/v1/auth/password')
-      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .set('Authorization', `Bearer ${passwordChangeAccessToken}`)
       .send({ currentPassword: password, newPassword: password });
     expect(unchangedPassword.status).toBe(400);
     expect(unchangedPassword.body.error.code).toBe('PASSWORD_UNCHANGED');
@@ -1201,9 +1226,15 @@ describe('authentication and AI app API', () => {
     const newPassword = 'Quasar!Maple7Bridge';
     const passwordChange = await request(app)
       .patch('/api/v1/auth/password')
-      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .set('Authorization', `Bearer ${passwordChangeAccessToken}`)
       .send({ currentPassword: password, newPassword });
     expect(passwordChange.status).toBe(204);
+
+    const accessAfterPasswordChange = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${passwordChangeAccessToken}`);
+    expect(accessAfterPasswordChange.status).toBe(401);
+    expect(accessAfterPasswordChange.body.error.code).toBe('SESSION_REVOKED');
 
     for (const refreshToken of [
       firstPasswordChangeRefreshToken,
@@ -1241,6 +1272,8 @@ describe('authentication and AI app API', () => {
         password: newPassword,
       });
     expect(additionalSessionLogin.status).toBe(200);
+    const additionalSessionAccessToken: string =
+      additionalSessionLogin.body.data.accessToken;
     const additionalSessionRefreshToken: string =
       additionalSessionLogin.body.data.refreshToken;
 
@@ -1268,6 +1301,22 @@ describe('authentication and AI app API', () => {
       deviceType: 'mobile',
     });
 
+    const staleActivityAt = new Date(Date.now() - 5 * 60_000);
+    await pool.query(
+      'UPDATE refresh_tokens SET last_used_at = $2 WHERE id = $1',
+      [sessionSummary.body.data.items[0].id, staleActivityAt],
+    );
+    const requestAfterActivityStale = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(requestAfterActivityStale.status).toBe(200);
+    const touchedActivity = await pool.query<{ last_used_at: Date }>(
+      'SELECT last_used_at FROM refresh_tokens WHERE id = $1',
+      [sessionSummary.body.data.items[0].id],
+    );
+    expect(touchedActivity.rows[0]!.last_used_at.getTime())
+      .toBeGreaterThan(staleActivityAt.getTime());
+
     const outsiderSessionResult = await pool.query<{ id: string }>(
       `SELECT rt.id
          FROM refresh_tokens rt
@@ -1291,6 +1340,12 @@ describe('authentication and AI app API', () => {
       revokedSession: true,
       currentSession: false,
     });
+
+    const accessAfterSingleSessionRevoke = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${additionalSessionAccessToken}`);
+    expect(accessAfterSingleSessionRevoke.status).toBe(401);
+    expect(accessAfterSingleSessionRevoke.body.error.code).toBe('SESSION_REVOKED');
 
     const eventsAfterSessionRevoke = await request(app)
       .get('/api/v1/auth/security-events?limit=20')
@@ -1321,19 +1376,40 @@ describe('authentication and AI app API', () => {
     expect(revokeSessions.status).toBe(200);
     expect(revokeSessions.body.data.revokedSessions).toBe(1);
 
+    const accessAfterAllSessionRevoke = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+    expect(accessAfterAllSessionRevoke.status).toBe(401);
+    expect(accessAfterAllSessionRevoke.body.error.code).toBe('SESSION_REVOKED');
+
+    const securityEventViewerLogin = await request(app).post('/api/v1/auth/login').send({
+      email: ownerEmail,
+      password: newPassword,
+    });
+    expect(securityEventViewerLogin.status).toBe(200);
+
     const eventsAfterAllSessionRevoke = await request(app)
       .get('/api/v1/auth/security-events?limit=20')
-      .set('Authorization', `Bearer ${firstSessionAccessToken}`);
+      .set('Authorization', `Bearer ${securityEventViewerLogin.body.data.accessToken}`);
     expect(eventsAfterAllSessionRevoke.status).toBe(200);
-    expect(eventsAfterAllSessionRevoke.body.data.items[0]).toMatchObject({
-      eventType: 'all_sessions_revoked',
-      outcome: 'success',
-      metadata: { revokedSessions: 1 },
-    });
+    expect(eventsAfterAllSessionRevoke.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'all_sessions_revoked',
+        outcome: 'success',
+        metadata: { revokedSessions: 1 },
+      }),
+    ]));
 
     const refreshAfterSessionRevoke = await request(app)
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: firstSessionRefreshToken });
     expect(refreshAfterSessionRevoke.status).toBe(401);
+
+    await pool.query("UPDATE users SET status = 'disabled' WHERE email = $1", [outsiderEmail]);
+    const disabledUserAccess = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(disabledUserAccess.status).toBe(403);
+    expect(disabledUserAccess.body.error.code).toBe('USER_DISABLED');
   });
 });
