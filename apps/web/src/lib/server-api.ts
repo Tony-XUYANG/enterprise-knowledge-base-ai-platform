@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import type { AuthResult } from './types';
+import type { AuthResult, MfaRequiredResult } from './types';
 
 const apiBaseUrl = process.env.API_BASE_URL ?? 'http://localhost:3001';
 const accessCookieName = 'kh_access_token';
@@ -35,6 +35,10 @@ async function setSessionCookies(session: AuthResult): Promise<void> {
   });
 }
 
+function isMfaRequired(result: AuthResult | MfaRequiredResult): result is MfaRequiredResult {
+  return 'mfaRequired' in result && result.mfaRequired;
+}
+
 export async function clearSessionCookies(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(accessCookieName);
@@ -55,14 +59,44 @@ export async function handleAuthentication(
       body: await request.text(),
       cache: 'no-store',
     });
-    const payload = (await upstream.json()) as { data?: AuthResult };
+    const payload = (await upstream.json()) as { data?: AuthResult | MfaRequiredResult };
 
     if (!upstream.ok || !payload.data) {
       return NextResponse.json(payload, { status: upstream.status });
     }
 
+    if (isMfaRequired(payload.data)) {
+      return NextResponse.json({ data: payload.data }, { status: upstream.status });
+    }
+
     await setSessionCookies(payload.data);
     return NextResponse.json({ data: payload.data.user }, { status: upstream.status });
+  } catch {
+    return NextResponse.json(
+      { error: { code: 'API_UNAVAILABLE', message: '服务暂时不可用，请稍后重试' } },
+      { status: 502 },
+    );
+  }
+}
+
+export async function handleMfaVerification(request: Request): Promise<NextResponse> {
+  try {
+    const upstream = await fetch(`${apiBaseUrl}/api/v1/auth/mfa/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...clientContextHeaders(request),
+      },
+      body: await request.text(),
+      cache: 'no-store',
+    });
+    const payload = (await upstream.json()) as { data?: AuthResult };
+    if (!upstream.ok || !payload.data) {
+      return NextResponse.json(payload, { status: upstream.status });
+    }
+
+    await setSessionCookies(payload.data);
+    return NextResponse.json({ data: payload.data.user });
   } catch {
     return NextResponse.json(
       { error: { code: 'API_UNAVAILABLE', message: '服务暂时不可用，请稍后重试' } },

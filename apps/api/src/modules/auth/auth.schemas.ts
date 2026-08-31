@@ -45,6 +45,24 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(72),
 });
 
+export const mfaLoginVerifySchema = z.object({
+  mfaToken: z.string().min(32).max(200),
+  code: z.string().trim().min(6).max(40),
+});
+
+export const mfaSetupSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),
+});
+
+export const mfaCodeSchema = z.object({
+  code: z.string().trim().min(6).max(40),
+});
+
+export const mfaProtectedActionSchema = z.object({
+  currentPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),
+  code: z.string().trim().min(6).max(40),
+});
+
 export const refreshSchema = z.object({
   refreshToken: z.string().min(40).max(200),
 });
@@ -75,6 +93,10 @@ export const updateProfileSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type MfaLoginVerifyInput = z.infer<typeof mfaLoginVerifySchema>;
+export type MfaSetupInput = z.infer<typeof mfaSetupSchema>;
+export type MfaCodeInput = z.infer<typeof mfaCodeSchema>;
+export type MfaProtectedActionInput = z.infer<typeof mfaProtectedActionSchema>;
 export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

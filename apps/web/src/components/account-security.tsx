@@ -40,6 +40,7 @@ import type {
   User,
 } from '@/lib/types';
 import { PasswordStrength } from './password-strength';
+import { MfaSettings } from './mfa-settings';
 import { SessionRevokeDialog } from './session-revoke-dialog';
 import { WorkspaceShell } from './workspace-shell';
 
@@ -81,6 +82,24 @@ export function AccountSecurity() {
     }
   }, [router]);
 
+  const loadSessionSummary = useCallback(async () => {
+    setSessionError('');
+    try {
+      setSessionSummary(await clientApi<SessionSummary>('/api/auth/sessions'));
+    } catch (requestError) {
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        router.replace('/login');
+        router.refresh();
+        return;
+      }
+      setSessionError('会话状态加载失败，请稍后重试');
+    }
+  }, [router]);
+
+  const handleMfaSecurityChanged = useCallback(async () => {
+    await Promise.all([loadSessionSummary(), loadSecurityEvents()]);
+  }, [loadSecurityEvents, loadSessionSummary]);
+
   useEffect(() => {
     let mounted = true;
     clientApi<User>('/api/auth/session')
@@ -98,23 +117,12 @@ export function AccountSecurity() {
         }
         if (mounted) setProfileError('账号信息加载失败，请稍后重试');
       });
-    clientApi<SessionSummary>('/api/auth/sessions')
-      .then((summary) => {
-        if (mounted) setSessionSummary(summary);
-      })
-      .catch((requestError: unknown) => {
-        if (requestError instanceof ClientApiError && requestError.status === 401) {
-          router.replace('/login');
-          router.refresh();
-          return;
-        }
-        if (mounted) setSessionError('会话状态加载失败，请稍后重试');
-      });
+    void loadSessionSummary();
     void loadSecurityEvents();
     return () => {
       mounted = false;
     };
-  }, [loadSecurityEvents, router]);
+  }, [loadSecurityEvents, loadSessionSummary, router]);
 
   const passwordAssessment = useMemo(
     () => assessPassword(newPassword, {
@@ -313,6 +321,16 @@ export function AccountSecurity() {
         return { title: '所有设备已退出', detail: '已撤销账号的全部活跃会话' };
       case 'logout':
         return { title: '已主动退出', detail: '当前设备会话已结束' };
+      case 'mfa_setup_started':
+        return { title: '开始设置双重验证', detail: '已创建一次性验证器配置' };
+      case 'mfa_enabled':
+        return { title: '双重验证已启用', detail: '账号登录已增加第二步身份验证' };
+      case 'mfa_disabled':
+        return { title: '双重验证已关闭', detail: '账号已恢复为密码登录' };
+      case 'mfa_recovery_codes_regenerated':
+        return { title: '恢复码已更新', detail: '旧恢复码已全部失效' };
+      case 'mfa_login_failed':
+        return { title: '双重验证失败', detail: '已拦截无效或过期的第二步验证' };
     }
   }
 
@@ -488,6 +506,8 @@ export function AccountSecurity() {
           </form>
           </section>
 
+          <MfaSettings onSecurityChanged={handleMfaSecurityChanged} />
+
           <section className="settingsSection" aria-labelledby="session-settings-title">
             <header className="settingsSectionHeader">
               <span className="settingsSectionIcon" aria-hidden="true">
@@ -621,6 +641,7 @@ export function AccountSecurity() {
               ) : visibleSecurityEvents.map((event) => {
                 const description = describeSecurityEvent(event);
                 const EventIcon = event.eventType === 'login_failed'
+                  || event.eventType === 'mfa_login_failed'
                   ? AlertTriangle
                   : event.eventType === 'account_locked' || event.eventType === 'refresh_token_reused'
                     ? ShieldAlert
@@ -636,6 +657,10 @@ export function AccountSecurity() {
                             : event.eventType === 'password_reset_requested'
                               ? Mail
                               : event.eventType === 'account_registered'
+                                || event.eventType === 'mfa_setup_started'
+                                || event.eventType === 'mfa_enabled'
+                                || event.eventType === 'mfa_disabled'
+                                || event.eventType === 'mfa_recovery_codes_regenerated'
                                 ? ShieldCheck
                                 : LogOut;
                 return (

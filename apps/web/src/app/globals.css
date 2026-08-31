@@ -450,6 +450,32 @@ a {
   text-decoration: underline;
 }
 
+.mfaLoginForm {
+  gap: 16px;
+}
+
+.mfaLoginMark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.mfaCodeInput {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+}
+
+.authBackButton {
+  justify-self: center;
+  min-height: 34px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .fieldWithIcon {
   position: relative;
   display: block;
@@ -776,6 +802,218 @@ a {
   justify-content: flex-end;
   border-top: 1px solid var(--border);
   padding-top: 18px;
+}
+
+.mfaStateBadge {
+  margin-left: auto;
+  border-radius: 999px;
+  background: #edf2f0;
+  padding: 3px 9px;
+  color: var(--text-secondary) !important;
+  font-size: 11px !important;
+  font-weight: 700;
+}
+
+.mfaStateBadge.enabled {
+  background: var(--primary-soft);
+  color: var(--primary-hover) !important;
+}
+
+.mfaStatusRow {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 15px 4px;
+}
+
+.mfaStatusIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border-radius: 6px;
+  background: #edf2f0;
+  color: var(--text-secondary);
+}
+
+.mfaStatusRow.enabled .mfaStatusIcon {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.mfaStatusRow > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.mfaStatusRow strong {
+  font-size: 13px;
+}
+
+.mfaStatusRow small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.mfaSettingsSection > .settingsFormActions {
+  margin-top: 18px;
+}
+
+.mfaActionButtons,
+.mfaFormActions,
+.mfaRecoveryActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.mfaActionButtons {
+  margin-top: 18px;
+}
+
+.mfaActionForm {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 18px;
+}
+
+.mfaActionHeading {
+  display: grid;
+  gap: 2px;
+}
+
+.mfaActionHeading strong {
+  font-size: 13px;
+}
+
+.mfaActionHeading small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.mfaSetupFlow {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 20px 0;
+}
+
+.mfaQrArea {
+  display: grid;
+  width: 240px;
+  height: 240px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.mfaQrArea img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mfaSetupDetails {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 14px;
+}
+
+.mfaStepLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.mfaManualKey {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 7px 7px 7px 10px;
+}
+
+.mfaManualKey code {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.mfaEnableForm {
+  display: grid;
+  gap: 16px;
+}
+
+.mfaRecoveryPanel {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  border: 1px solid #dfc57d;
+  border-left: 4px solid var(--warning);
+  border-radius: 6px;
+  background: #fffaf0;
+  padding: 18px;
+}
+
+.mfaRecoveryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mfaRecoveryHeader > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #784309;
+}
+
+.mfaRecoveryHeader small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.mfaRecoveryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #ead9a8;
+  background: #ead9a8;
+}
+
+.mfaRecoveryGrid code {
+  min-width: 0;
+  background: #ffffff;
+  padding: 8px 10px;
+  color: #49391e;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .sessionOverview {
@@ -3227,6 +3465,15 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .mfaSetupFlow {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .mfaQrArea {
+    width: 210px;
+    height: 210px;
+  }
+
   .statStrip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3738,6 +3985,33 @@ a {
 
   .sessionActions .dangerButton {
     width: 100%;
+  }
+
+  .mfaSetupFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .mfaQrArea {
+    width: min(100%, 240px);
+    height: auto;
+    aspect-ratio: 1;
+    justify-self: center;
+  }
+
+  .mfaRecoveryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .mfaActionButtons > button,
+  .mfaFormActions > button,
+  .mfaRecoveryActions > button {
+    width: 100%;
+  }
+
+  .mfaRecoveryHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .sessionMetric {

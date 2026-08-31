@@ -1,6 +1,15 @@
 'use client';
 
-import { Eye, EyeOff, LoaderCircle, LogIn, UserPlus } from 'lucide-react';
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  KeyRound,
+  LoaderCircle,
+  LogIn,
+  ShieldCheck,
+  UserPlus,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useMemo, useState } from 'react';
@@ -10,7 +19,7 @@ import {
   PASSWORD_MAX_CHARACTERS,
   PASSWORD_MIN_CHARACTERS,
 } from '@/lib/password-policy';
-import type { User } from '@/lib/types';
+import type { MfaRequiredResult, User } from '@/lib/types';
 import { Brand } from './brand';
 import { PasswordStrength } from './password-strength';
 
@@ -29,6 +38,9 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [mfaChallenge, setMfaChallenge] = useState<MfaRequiredResult | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaMethod, setMfaMethod] = useState<'totp' | 'recovery'>('totp');
   const passwordAssessment = useMemo(
     () => assessPassword(password, { email, displayName }),
     [displayName, email, password],
@@ -46,7 +58,7 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
     setSubmitting(true);
 
     try {
-      await clientApi<User>(`/api/auth/${mode}`, {
+      const result = await clientApi<User | MfaRequiredResult>(`/api/auth/${mode}`, {
         method: 'POST',
         body: JSON.stringify({
           email,
@@ -54,6 +66,11 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
           ...(isRegister ? { displayName } : {}),
         }),
       });
+      if ('mfaRequired' in result && result.mfaRequired) {
+        setMfaChallenge(result);
+        setPassword('');
+        return;
+      }
       router.replace('/overview');
       router.refresh();
     } catch (requestError) {
@@ -67,6 +84,36 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
     }
   }
 
+  async function handleMfaSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!mfaChallenge || mfaCode.trim().length < 6) return;
+    setError('');
+    setSubmitting(true);
+    try {
+      await clientApi<User>('/api/auth/mfa/verify', {
+        method: 'POST',
+        body: JSON.stringify({ mfaToken: mfaChallenge.mfaToken, code: mfaCode }),
+      });
+      router.replace('/overview');
+      router.refresh();
+    } catch (requestError) {
+      setError(
+        requestError instanceof ClientApiError
+          ? requestError.message
+          : '身份验证失败，请稍后重试',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function returnToLogin() {
+    setMfaChallenge(null);
+    setMfaCode('');
+    setMfaMethod('totp');
+    setError('');
+  }
+
   return (
     <main className="authPage">
       <div className="authHeader">
@@ -75,10 +122,76 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
 
       <section className="authPanel" aria-labelledby="auth-title">
         <div className="authTitleGroup">
-          <h1 id="auth-title">{isRegister ? '创建账号' : '登录'}</h1>
-          <p>{isRegister ? '开始管理你的 AI 应用' : '继续进入工作台'}</p>
+          <h1 id="auth-title">{mfaChallenge ? '验证身份' : isRegister ? '创建账号' : '登录'}</h1>
+          <p>
+            {mfaChallenge
+              ? '完成双重验证后进入工作台'
+              : isRegister
+                ? '开始管理你的 AI 应用'
+                : '继续进入工作台'}
+          </p>
         </div>
 
+        {mfaChallenge ? (
+          <form className="authForm mfaLoginForm" onSubmit={handleMfaSubmit}>
+            <div className="mfaLoginMark" aria-hidden="true"><ShieldCheck size={24} /></div>
+            <div className="segmentedControl" aria-label="验证方式">
+              <button
+                type="button"
+                className={mfaMethod === 'totp' ? 'active' : ''}
+                onClick={() => {
+                  setMfaMethod('totp');
+                  setMfaCode('');
+                  setError('');
+                }}
+              >
+                验证器
+              </button>
+              <button
+                type="button"
+                className={mfaMethod === 'recovery' ? 'active' : ''}
+                onClick={() => {
+                  setMfaMethod('recovery');
+                  setMfaCode('');
+                  setError('');
+                }}
+              >
+                恢复码
+              </button>
+            </div>
+
+            <label className="field">
+              <span>{mfaMethod === 'totp' ? '6 位验证码' : '恢复码'}</span>
+              <input
+                name="mfaCode"
+                className="mfaCodeInput"
+                value={mfaCode}
+                onChange={(event) => setMfaCode(event.target.value)}
+                autoComplete="one-time-code"
+                inputMode={mfaMethod === 'totp' ? 'numeric' : 'text'}
+                pattern={mfaMethod === 'totp' ? '[0-9]{6}' : undefined}
+                maxLength={mfaMethod === 'totp' ? 6 : 40}
+                placeholder={mfaMethod === 'totp' ? '000000' : 'XXXX-XXXX-XXXX-XXXX-XXXX'}
+                autoFocus
+                required
+              />
+            </label>
+
+            {error && <div className="formError" role="alert">{error}</div>}
+
+            <button
+              className="primaryButton fullWidth"
+              type="submit"
+              disabled={submitting || mfaCode.trim().length < 6}
+            >
+              {submitting ? <LoaderCircle className="spin" size={18} /> : <KeyRound size={18} />}
+              {submitting ? '正在验证' : '验证并登录'}
+            </button>
+            <button className="textButton authBackButton" type="button" onClick={returnToLogin}>
+              <ArrowLeft size={17} />返回密码登录
+            </button>
+          </form>
+        ) : (
         <form className="authForm" onSubmit={handleSubmit}>
           {successMessage && (
             <div className="formSuccess" role="status">
@@ -186,12 +299,14 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
           </button>
         </form>
 
-        <p className="authSwitch">
+        )}
+
+        {!mfaChallenge && <p className="authSwitch">
           {isRegister ? '已有账号？' : '还没有账号？'}{' '}
           <Link href={isRegister ? '/login' : '/register'}>
             {isRegister ? '直接登录' : '立即注册'}
           </Link>
-        </p>
+        </p>}
       </section>
     </main>
   );

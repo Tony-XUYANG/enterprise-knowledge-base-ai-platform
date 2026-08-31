@@ -24,6 +24,8 @@ export function createApp() {
         'req.body.currentPassword',
         'req.body.newPassword',
         'req.body.token',
+        'req.body.code',
+        'req.body.mfaToken',
         'req.body.refreshToken',
         'req.body.fastgptApiKey',
       ],

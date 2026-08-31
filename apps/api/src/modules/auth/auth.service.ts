@@ -17,12 +17,15 @@ import {
   hashRefreshToken,
   refreshTokenExpiresAt,
 } from '../../security/tokens.js';
+import { createMfaChallengeToken, hashMfaValue } from '../../security/mfa.js';
 import type {
   ChangePasswordInput,
   LoginInput,
+  MfaLoginVerifyInput,
   RegisterInput,
   UpdateProfileInput,
 } from './auth.schemas.js';
+import { verifyMfaFactor } from './mfa.service.js';
 import { recordSecurityEvent } from './security-events.service.js';
 import { describeClientDevice } from './session-device.js';
 
@@ -38,6 +41,15 @@ interface LoginUserRow extends UserRow {
   failed_login_attempts: number;
   last_failed_login_at: Date | null;
   locked_until: Date | null;
+  mfa_secret_ciphertext: string | null;
+  mfa_enabled_at: Date | null;
+}
+
+interface MfaLoginChallengeRow extends LoginUserRow {
+  challenge_id: string;
+  attempt_count: number;
+  challenge_expires_at: Date;
+  consumed_at: Date | null;
 }
 
 interface RefreshSessionRow extends UserRow {
@@ -78,6 +90,14 @@ export interface AuthResult {
   accessTokenExpiresIn: number;
 }
 
+export interface MfaRequiredResult {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
+}
+
+export type LoginResult = AuthResult | MfaRequiredResult;
+
 interface IssuedSession {
   result: AuthResult;
   sessionId: string;
@@ -113,9 +133,16 @@ export interface AuthSession {
 
 type LoginAttemptResult =
   | { kind: 'success'; result: AuthResult }
+  | { kind: 'mfa_required'; result: MfaRequiredResult }
   | { kind: 'invalid' }
   | { kind: 'disabled' }
   | { kind: 'locked'; lockedUntil: Date; retryAfterSeconds: number };
+
+type MfaLoginAttemptResult =
+  | { kind: 'success'; result: AuthResult }
+  | { kind: 'invalid_challenge' }
+  | { kind: 'invalid_code'; remainingAttempts: number }
+  | { kind: 'disabled' };
 
 type RefreshAttemptResult =
   | { kind: 'success'; result: AuthResult }
@@ -250,11 +277,12 @@ export async function register(
 export async function login(
   input: LoginInput,
   context: SessionContext,
-): Promise<AuthResult> {
+): Promise<LoginResult> {
   const attempt = await withTransaction<LoginAttemptResult>(async (client) => {
     const userResult = await client.query<LoginUserRow>(
       `SELECT id, email, password_hash, display_name, status,
-              failed_login_attempts, last_failed_login_at, locked_until
+              failed_login_attempts, last_failed_login_at, locked_until,
+              mfa_secret_ciphertext, mfa_enabled_at
          FROM users
         WHERE email = $1
         FOR UPDATE`,
@@ -362,6 +390,33 @@ export async function login(
       return { kind: 'disabled' };
     }
 
+    if (user.mfa_secret_ciphertext && user.mfa_enabled_at) {
+      const mfaToken = createMfaChallengeToken();
+      const expiresAt = addMinutes(new Date(), env.MFA_LOGIN_CHALLENGE_TTL_MINUTES);
+      await client.query(
+        `UPDATE users
+            SET failed_login_attempts = 0,
+                last_failed_login_at = NULL,
+                locked_until = NULL
+          WHERE id = $1`,
+        [user.id],
+      );
+      await client.query('DELETE FROM mfa_login_challenges WHERE user_id = $1', [user.id]);
+      await client.query(
+        `INSERT INTO mfa_login_challenges (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, hashMfaValue(mfaToken), expiresAt],
+      );
+      return {
+        kind: 'mfa_required',
+        result: {
+          mfaRequired: true,
+          mfaToken,
+          expiresIn: env.MFA_LOGIN_CHALLENGE_TTL_MINUTES * 60,
+        },
+      };
+    }
+
     await client.query(
       `UPDATE users
           SET last_login_at = CURRENT_TIMESTAMP,
@@ -389,12 +444,137 @@ export async function login(
   switch (attempt.kind) {
     case 'success':
       return attempt.result;
+    case 'mfa_required':
+      return attempt.result;
     case 'disabled':
       throw new AppError(403, 'USER_DISABLED', '账号已被停用');
     case 'locked':
       throw lockoutError(attempt.lockedUntil, attempt.retryAfterSeconds);
     case 'invalid':
       throw new AppError(401, 'INVALID_CREDENTIALS', '邮箱或密码错误');
+  }
+}
+
+export async function verifyMfaLogin(
+  input: MfaLoginVerifyInput,
+  context: SessionContext,
+): Promise<AuthResult> {
+  const attempt = await withTransaction<MfaLoginAttemptResult>(async (client) => {
+    const result = await client.query<MfaLoginChallengeRow>(
+      `SELECT c.id AS challenge_id, c.attempt_count,
+              c.expires_at AS challenge_expires_at, c.consumed_at,
+              u.id, u.email, u.password_hash, u.display_name, u.status,
+              u.failed_login_attempts, u.last_failed_login_at, u.locked_until,
+              u.mfa_secret_ciphertext, u.mfa_enabled_at
+         FROM mfa_login_challenges c
+         JOIN users u ON u.id = c.user_id
+        WHERE c.token_hash = $1
+        FOR UPDATE OF c, u`,
+      [hashMfaValue(input.mfaToken)],
+    );
+    const challenge = result.rows[0];
+    if (!challenge) return { kind: 'invalid_challenge' };
+
+    const now = new Date();
+    if (
+      challenge.consumed_at
+      || challenge.challenge_expires_at <= now
+      || challenge.attempt_count >= env.MFA_MAX_ATTEMPTS
+      || !challenge.mfa_secret_ciphertext
+      || !challenge.mfa_enabled_at
+    ) {
+      if (!challenge.consumed_at) {
+        await client.query(
+          'UPDATE mfa_login_challenges SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [challenge.challenge_id],
+        );
+      }
+      await recordSecurityEvent({
+        userId: challenge.id,
+        eventType: 'mfa_login_failed',
+        outcome: 'failure',
+        context,
+        metadata: {
+          reason: challenge.challenge_expires_at <= now
+            ? 'challenge_expired'
+            : challenge.consumed_at
+              ? 'challenge_consumed'
+              : challenge.attempt_count >= env.MFA_MAX_ATTEMPTS
+                ? 'attempt_limit_reached'
+                : 'mfa_not_enabled',
+        },
+      }, client);
+      return { kind: 'invalid_challenge' };
+    }
+    if (challenge.status !== 'active') return { kind: 'disabled' };
+
+    const method = await verifyMfaFactor(
+      client,
+      challenge.id,
+      challenge.mfa_secret_ciphertext,
+      input.code,
+      true,
+    );
+    if (!method) {
+      const nextAttemptCount = challenge.attempt_count + 1;
+      const remainingAttempts = Math.max(0, env.MFA_MAX_ATTEMPTS - nextAttemptCount);
+      await client.query(
+        `UPDATE mfa_login_challenges
+            SET attempt_count = $2::smallint,
+                consumed_at = CASE
+                  WHEN $2::smallint >= $3::smallint THEN CURRENT_TIMESTAMP
+                  ELSE consumed_at
+                END
+          WHERE id = $1`,
+        [challenge.challenge_id, nextAttemptCount, env.MFA_MAX_ATTEMPTS],
+      );
+      await recordSecurityEvent({
+        userId: challenge.id,
+        eventType: 'mfa_login_failed',
+        outcome: 'failure',
+        context,
+        metadata: { reason: 'invalid_code', remainingAttempts },
+      }, client);
+      return { kind: 'invalid_code', remainingAttempts };
+    }
+
+    await client.query(
+      'UPDATE mfa_login_challenges SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1',
+      [challenge.challenge_id],
+    );
+    await client.query(
+      `UPDATE users
+          SET last_login_at = CURRENT_TIMESTAMP,
+              failed_login_attempts = 0,
+              last_failed_login_at = NULL,
+              locked_until = NULL
+        WHERE id = $1`,
+      [challenge.id],
+    );
+    const roles = await getRoles(client, challenge.id);
+    const issuedSession = await issueSession(client, challenge, roles, context);
+    await recordSecurityEvent({
+      userId: challenge.id,
+      eventType: 'login_succeeded',
+      outcome: 'success',
+      context,
+      actorSessionId: issuedSession.sessionId,
+      metadata: { mfaMethod: method },
+    }, client);
+    return { kind: 'success', result: issuedSession.result };
+  });
+
+  switch (attempt.kind) {
+    case 'success':
+      return attempt.result;
+    case 'disabled':
+      throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+    case 'invalid_code':
+      throw new AppError(401, 'MFA_CODE_INVALID', '验证码或恢复码不正确', {
+        remainingAttempts: attempt.remainingAttempts,
+      });
+    case 'invalid_challenge':
+      throw new AppError(401, 'MFA_CHALLENGE_INVALID', '验证请求无效或已过期，请重新登录');
   }
 }
 

@@ -17,7 +17,12 @@ export type SecurityEventType =
   | 'refresh_token_reused'
   | 'session_revoked'
   | 'all_sessions_revoked'
-  | 'logout';
+  | 'logout'
+  | 'mfa_setup_started'
+  | 'mfa_enabled'
+  | 'mfa_disabled'
+  | 'mfa_recovery_codes_regenerated'
+  | 'mfa_login_failed';
 
 export type SecurityEventOutcome = 'success' | 'failure';
 

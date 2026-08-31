@@ -10,7 +10,8 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | --- | --- | --- | --- |
 | GET | `/health` | No | Check API and database health |
 | POST | `/api/v1/auth/register` | No | Register and issue tokens |
-| POST | `/api/v1/auth/login` | No | Log in and issue tokens |
+| POST | `/api/v1/auth/login` | No | Verify password; issue tokens or an MFA challenge |
+| POST | `/api/v1/auth/mfa/verify` | One-time MFA challenge | Verify TOTP/recovery code and issue tokens |
 | POST | `/api/v1/auth/refresh` | Refresh token | Rotate the refresh token |
 | POST | `/api/v1/auth/logout` | Refresh token | Revoke the refresh token |
 | POST | `/api/v1/auth/password-reset/request` | No | Request a generic password-reset email response |
@@ -18,6 +19,11 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/auth/me` | Bearer token | Read the current user |
 | PATCH | `/api/v1/auth/me` | Bearer token | Update the current user's display name |
 | PATCH | `/api/v1/auth/password` | Bearer token + current password | Change password and revoke all refresh sessions |
+| GET | `/api/v1/auth/mfa` | Bearer token | Read MFA state and remaining recovery-code count |
+| POST | `/api/v1/auth/mfa/setup` | Bearer token + current password | Create an expiring authenticator setup |
+| POST | `/api/v1/auth/mfa/enable` | Bearer token + TOTP | Enable MFA and return recovery codes once |
+| POST | `/api/v1/auth/mfa/recovery-codes` | Bearer token + password + TOTP | Replace all recovery codes |
+| POST | `/api/v1/auth/mfa/disable` | Bearer token + password + MFA code | Disable MFA and invalidate recovery codes |
 | GET | `/api/v1/auth/sessions` | Bearer token | List active device sessions and mark the current session |
 | DELETE | `/api/v1/auth/sessions/:sessionId` | Bearer token | Revoke one owned active device session |
 | DELETE | `/api/v1/auth/sessions` | Bearer token | Revoke all active refresh sessions |
@@ -75,6 +81,14 @@ Authenticated requests also advance `last_used_at`, with writes limited to at mo
 
 Registration and login share a 30-request-per-minute credential limiter. Refresh and logout use a separate 60-request-per-minute session-credential limiter, so routine rotation cannot consume the login budget and login attempts cannot prevent an active user from ending a session. Authenticated profile, password, and session-management endpoints remain outside both credential budgets.
 
+## Multi-factor authentication
+
+MFA uses RFC 6238 TOTP with the standard 6-digit, 30-second authenticator profile. `POST /api/v1/auth/mfa/setup` requires the current password and returns an expiring QR data URL plus manual Base32 key. The pending secret and enabled secret are AES-256-GCM encrypted at rest. Setup expires after 10 minutes by default; only a valid current TOTP can enable it.
+
+An MFA-enabled account receives `{ "mfaRequired": true, "mfaToken", "expiresIn" }` after valid password authentication. No access token, refresh token, or database session is created at that stage. `POST /api/v1/auth/mfa/verify` accepts the opaque challenge and either a current TOTP or unused recovery code. The challenge stores only a SHA-256 hash, expires after five minutes, permits five failed attempts, and is atomically consumed once. A successful recovery-code login atomically marks that code used.
+
+Enabling MFA returns 10 high-entropy recovery codes exactly once; only their normalized SHA-256 hashes are stored. Regeneration invalidates every old code before returning a new set. Disabling accepts either a current TOTP or an unused recovery code. Setup, enable, disable, recovery-code replacement, failed MFA login, and successful MFA method are recorded without secret values. Enabling, disabling, and recovery-code replacement retain the authenticated current session but revoke every other active device session.
+
 ## Login protection
 
 Login protection is account-scoped in addition to the request rate limiter. Within the default 15-minute failure window, five consecutive invalid-password attempts lock the account for 15 minutes. The threshold, window, and lockout duration are configurable through `LOGIN_FAILURE_LIMIT`, `LOGIN_FAILURE_WINDOW_MINUTES`, and `LOGIN_LOCKOUT_MINUTES`.
@@ -101,7 +115,7 @@ Local development sends mail to Mailpit at `localhost:1025`; its UI is available
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login and password-reset requests are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login and password-reset requests are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

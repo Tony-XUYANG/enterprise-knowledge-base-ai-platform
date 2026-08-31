@@ -6,6 +6,10 @@ import { authenticate } from '../../middleware/authenticate.js';
 import {
   changePasswordSchema,
   loginSchema,
+  mfaCodeSchema,
+  mfaLoginVerifySchema,
+  mfaProtectedActionSchema,
+  mfaSetupSchema,
   passwordResetConfirmSchema,
   passwordResetRequestSchema,
   refreshSchema,
@@ -26,7 +30,15 @@ import {
   revokeSession,
   type SessionContext,
   updateCurrentUser,
+  verifyMfaLogin,
 } from './auth.service.js';
+import {
+  disableMfa,
+  enableMfa,
+  getMfaStatus,
+  regenerateMfaRecoveryCodes,
+  startMfaSetup,
+} from './mfa.service.js';
 import { getSecurityEvents } from './security-events.service.js';
 import { sendPasswordResetEmail } from './password-reset-mailer.js';
 import {
@@ -114,6 +126,14 @@ authRouter.post('/login', credentialRateLimiter, async (request, response) => {
   response.json({ data: result });
 });
 
+authRouter.post('/mfa/verify', credentialRateLimiter, async (request, response) => {
+  const result = await verifyMfaLogin(
+    mfaLoginVerifySchema.parse(request.body),
+    sessionContext(request),
+  );
+  response.json({ data: result });
+});
+
 authRouter.post('/refresh', sessionCredentialRateLimiter, async (request, response) => {
   const input = refreshSchema.parse(request.body);
   const result = await refreshSession(input.refreshToken, sessionContext(request));
@@ -189,6 +209,75 @@ authRouter.patch('/password', authenticate, async (request, response) => {
     request.auth.sessionId,
   );
   response.status(204).send();
+});
+
+authRouter.get('/mfa', authenticate, async (request, response) => {
+  if (!request.auth) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  response.json({ data: await getMfaStatus(request.auth.userId) });
+});
+
+authRouter.post('/mfa/setup', authenticate, async (request, response) => {
+  if (!request.auth?.sessionId) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  const input = mfaSetupSchema.parse(request.body);
+  response.json({
+    data: await startMfaSetup(
+      request.auth.userId,
+      input.currentPassword,
+      sessionContext(request),
+      request.auth.sessionId,
+    ),
+  });
+});
+
+authRouter.post('/mfa/enable', authenticate, async (request, response) => {
+  if (!request.auth?.sessionId) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  const input = mfaCodeSchema.parse(request.body);
+  response.json({
+    data: await enableMfa(
+      request.auth.userId,
+      input.code,
+      sessionContext(request),
+      request.auth.sessionId,
+    ),
+  });
+});
+
+authRouter.post('/mfa/disable', authenticate, async (request, response) => {
+  if (!request.auth?.sessionId) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  const input = mfaProtectedActionSchema.parse(request.body);
+  response.json({
+    data: await disableMfa(
+      request.auth.userId,
+      input.currentPassword,
+      input.code,
+      sessionContext(request),
+      request.auth.sessionId,
+    ),
+  });
+});
+
+authRouter.post('/mfa/recovery-codes', authenticate, async (request, response) => {
+  if (!request.auth?.sessionId) {
+    throw new AppError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+  }
+  const input = mfaProtectedActionSchema.parse(request.body);
+  response.json({
+    data: await regenerateMfaRecoveryCodes(
+      request.auth.userId,
+      input.currentPassword,
+      input.code,
+      sessionContext(request),
+      request.auth.sessionId,
+    ),
+  });
 });
 
 authRouter.get('/me', authenticate, async (request, response) => {

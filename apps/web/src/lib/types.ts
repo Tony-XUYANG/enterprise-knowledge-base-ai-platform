@@ -46,7 +46,12 @@ export type SecurityEventType =
   | 'refresh_token_reused'
   | 'session_revoked'
   | 'all_sessions_revoked'
-  | 'logout';
+  | 'logout'
+  | 'mfa_setup_started'
+  | 'mfa_enabled'
+  | 'mfa_disabled'
+  | 'mfa_recovery_codes_regenerated'
+  | 'mfa_login_failed';
 
 export interface SecurityEvent {
   id: string;
@@ -331,6 +336,35 @@ export interface AuthResult {
   accessToken: string;
   refreshToken: string;
   accessTokenExpiresIn: number;
+}
+
+export interface MfaRequiredResult {
+  mfaRequired: true;
+  mfaToken: string;
+  expiresIn: number;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  enabledAt: string | null;
+  recoveryCodesRemaining: number;
+}
+
+export interface MfaSetup {
+  manualKey: string;
+  qrCodeDataUrl: string;
+  expiresAt: string;
+}
+
+export interface MfaActivation {
+  enabledAt: string;
+  recoveryCodes: string[];
+  revokedSessions: number;
+}
+
+export interface MfaRecoveryCodeResult {
+  recoveryCodes: string[];
+  revokedSessions: number;
 }
 
 export interface ApiErrorBody {
