@@ -300,6 +300,8 @@ export function AccountSecurity() {
         return { title: '个人资料已更新', detail: '账号显示信息发生变更' };
       case 'password_changed':
         return { title: '密码已更新', detail: '所有设备会话已同步失效' };
+      case 'refresh_token_reused':
+        return { title: '检测到会话令牌重放', detail: '疑似会话凭据泄露，已自动撤销该设备' };
       case 'session_revoked':
         return { title: '设备会话已退出', detail: '已撤销指定设备的访问权限' };
       case 'all_sessions_revoked':
@@ -616,6 +618,7 @@ export function AccountSecurity() {
                 const EventIcon = event.eventType === 'login_failed'
                   ? AlertTriangle
                   : event.eventType === 'account_locked'
+                    || event.eventType === 'refresh_token_reused'
                     ? ShieldAlert
                     : event.eventType === 'account_unlocked'
                       ? ShieldCheck

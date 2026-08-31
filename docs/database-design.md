@@ -21,6 +21,7 @@ erDiagram
     AI_APPS ||--o{ CONVERSATIONS : serves
     CONVERSATIONS ||--o{ MESSAGES : contains
     USERS ||--o{ REFRESH_TOKENS : authenticates
+    REFRESH_TOKENS ||--o{ REFRESH_TOKEN_HISTORY : rotates
     USERS ||--o{ SECURITY_EVENTS : audits
     USERS ||--o{ USER_PASSWORD_HISTORY : retains
 ```
@@ -40,6 +41,7 @@ erDiagram
 - 最新失败助手消息可原位重试，不新增重复用户消息；`metadata` 保存重试次数、历史错误码和重试时间，继续维持原序号审计链路。
 - FastGPT API Key 只预留密文字段，应用层不得保存明文密钥。
 - 刷新令牌行同时作为稳定设备会话：轮换时原位替换令牌哈希并更新最近活动时间，不为同一设备制造重复会话；访问令牌携带会话 ID，支持识别和单独撤销当前设备。
+- `refresh_token_history` 只保存已轮换令牌的 SHA-256 哈希、所属会话和原到期时间。命中未过期历史哈希会在同一事务中撤销该设备当前会话并记录失败安全事件；过期历史在正常轮换时清理，令牌明文始终不落库。
 - 设备会话记录用户代理、API 观察到的来源 IP、登录时间、最近活动与到期时间；这些字段只用于安全审计和用户主动退出设备，不参与授权决策。
 - 每个受保护请求都使用访问令牌中的会话 ID 查询 `refresh_tokens` 的所有者、撤销和到期状态；这使退出、改密和会话撤销能立即阻断旧访问令牌，不再等待 JWT 自然过期。
 - 认证中间件对每个会话最多每分钟回写一次 `last_used_at`，在设备活动准确度与数据库写放大之间取得平衡。

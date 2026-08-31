@@ -65,11 +65,13 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 
 Refresh-token rotation updates the existing session row with a new token hash instead of creating another device entry. Replaying the old refresh token still fails. `DELETE /api/v1/auth/sessions/:sessionId` only revokes an active session owned by the authenticated user and returns whether it was the current session; unknown, expired, revoked, and cross-user IDs all return `SESSION_NOT_FOUND`.
 
+Each successful rotation stores only the previous token's SHA-256 hash until that token's original expiry. Replaying a retained token returns `REFRESH_TOKEN_REUSED`, revokes the session's newest refresh token in the same transaction, and immediately invalidates access tokens issued for that device. The first active-session detection also records a `refresh_token_reused` security event; repeated attempts cannot create unbounded duplicate events after the session is already revoked. Random, expired, and otherwise unknown tokens continue to return `INVALID_REFRESH_TOKEN`.
+
 Every bearer-authenticated request validates the access token's session ID against the database. The session must belong to the token subject, remain unrevoked and unexpired, and belong to an active user. Logout, password changes, single-device revocation, and all-device revocation therefore invalidate existing access tokens immediately instead of waiting for their JWT expiry. Revoked sessions return `SESSION_REVOKED`; access tokens without a session claim return `INVALID_ACCESS_TOKEN`.
 
 Authenticated requests also advance `last_used_at`, with writes limited to at most once per minute per session. This keeps the device list useful without writing the refresh-token row on every API call. The validation adds one indexed database lookup to protected requests, which is an intentional consistency tradeoff for immediate revocation.
 
-Registration, login, refresh, and logout share the credential rate limiter. Authenticated profile, password, and session-management endpoints are excluded so normal security operations cannot exhaust the login budget.
+Registration and login share a 30-request-per-minute credential limiter. Refresh and logout use a separate 60-request-per-minute session-credential limiter, so routine rotation cannot consume the login budget and login attempts cannot prevent an active user from ending a session. Authenticated profile, password, and session-management endpoints remain outside both credential budgets.
 
 ## Login protection
 
@@ -89,7 +91,7 @@ The user row is locked while the current password, strength policy, and retained
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

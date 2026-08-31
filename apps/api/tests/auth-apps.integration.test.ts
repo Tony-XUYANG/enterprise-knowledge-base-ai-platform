@@ -1165,33 +1165,128 @@ describe('authentication and AI app API', () => {
       [ownerEmail],
     );
     expect(sessionAfterRotation.rows).toEqual(sessionBeforeRotation.rows);
+    const refreshTokenHistory = await pool.query<{
+      session_id: string;
+      token_hash: string;
+    }>(
+      `SELECT h.session_id, h.token_hash
+         FROM refresh_token_history h
+         JOIN refresh_tokens rt ON rt.id = h.session_id
+         JOIN users u ON u.id = rt.user_id
+        WHERE u.email = $1`,
+      [ownerEmail],
+    );
+    expect(refreshTokenHistory.rows).toHaveLength(1);
+    expect(refreshTokenHistory.rows[0]!.session_id).toBe(sessionBeforeRotation.rows[0]!.id);
+    expect(JSON.stringify(refreshTokenHistory.rows)).not.toContain(originalRefreshToken);
+    expect(JSON.stringify(refreshTokenHistory.rows)).not.toContain(rotatedRefreshToken);
 
     const accessAfterRotation = await request(app)
       .get('/api/v1/auth/me')
       .set('Authorization', `Bearer ${rotatedAccessToken}`);
     expect(accessAfterRotation.status).toBe(200);
 
-    const replayResponse = await request(app).post('/api/v1/auth/refresh').send({
-      refreshToken: originalRefreshToken,
-    });
+    const replayResponse = await request(app)
+      .post('/api/v1/auth/refresh')
+      .set('User-Agent', 'Refresh-Replay-Security-Test/1.0')
+      .send({ refreshToken: originalRefreshToken });
     expect(replayResponse.status).toBe(401);
-    expect(replayResponse.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+    expect(replayResponse.body.error.code).toBe('REFRESH_TOKEN_REUSED');
+
+    const accessAfterRefreshTokenReplay = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${rotatedAccessToken}`);
+    expect(accessAfterRefreshTokenReplay.status).toBe(401);
+    expect(accessAfterRefreshTokenReplay.body.error.code).toBe('SESSION_REVOKED');
+
+    const currentRefreshAfterReplay = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: rotatedRefreshToken });
+    expect(currentRefreshAfterReplay.status).toBe(401);
+    expect(currentRefreshAfterReplay.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+
+    const logoutSession = await request(app).post('/api/v1/auth/login').send({
+      email: ownerEmail,
+      password,
+    });
+    expect(logoutSession.status).toBe(200);
+
+    const reuseSecurityEvents = await request(app)
+      .get('/api/v1/auth/security-events?limit=20')
+      .set('Authorization', `Bearer ${logoutSession.body.data.accessToken}`);
+    expect(reuseSecurityEvents.status).toBe(200);
+    expect(reuseSecurityEvents.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'refresh_token_reused',
+        outcome: 'failure',
+        actorSessionId: sessionBeforeRotation.rows[0]!.id,
+        targetSessionId: sessionBeforeRotation.rows[0]!.id,
+        userAgent: 'Refresh-Replay-Security-Test/1.0',
+        metadata: { reason: 'rotated_token_replayed' },
+      }),
+    ]));
+    expect(JSON.stringify(reuseSecurityEvents.body)).not.toContain(originalRefreshToken);
+    expect(JSON.stringify(reuseSecurityEvents.body)).not.toContain(rotatedRefreshToken);
+
+    const repeatedReplayResponse = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: originalRefreshToken });
+    expect(repeatedReplayResponse.status).toBe(401);
+    expect(repeatedReplayResponse.body.error.code).toBe('REFRESH_TOKEN_REUSED');
+    const reuseEventCount = await pool.query<{ total: string }>(
+      `SELECT count(*)::text AS total
+         FROM security_events e
+         JOIN users u ON u.id = e.user_id
+        WHERE u.email = $1
+          AND e.event_type = 'refresh_token_reused'`,
+      [ownerEmail],
+    );
+    expect(Number(reuseEventCount.rows[0]!.total)).toBe(1);
 
     const logoutResponse = await request(app).post('/api/v1/auth/logout').send({
-      refreshToken: rotatedRefreshToken,
+      refreshToken: logoutSession.body.data.refreshToken,
     });
     expect(logoutResponse.status).toBe(204);
 
     const accessAfterLogout = await request(app)
       .get('/api/v1/auth/me')
-      .set('Authorization', `Bearer ${rotatedAccessToken}`);
+      .set('Authorization', `Bearer ${logoutSession.body.data.accessToken}`);
     expect(accessAfterLogout.status).toBe(401);
     expect(accessAfterLogout.body.error.code).toBe('SESSION_REVOKED');
 
     const refreshAfterLogout = await request(app).post('/api/v1/auth/refresh').send({
-      refreshToken: rotatedRefreshToken,
+      refreshToken: logoutSession.body.data.refreshToken,
     });
     expect(refreshAfterLogout.status).toBe(401);
+
+    const concurrentRefreshSession = await request(app).post('/api/v1/auth/login').send({
+      email: ownerEmail,
+      password,
+    });
+    expect(concurrentRefreshSession.status).toBe(200);
+    const concurrentRefreshResponses = await Promise.all([
+      request(app).post('/api/v1/auth/refresh').send({
+        refreshToken: concurrentRefreshSession.body.data.refreshToken,
+      }),
+      request(app).post('/api/v1/auth/refresh').send({
+        refreshToken: concurrentRefreshSession.body.data.refreshToken,
+      }),
+    ]);
+    expect(concurrentRefreshResponses.map((response) => response.status).sort())
+      .toEqual([200, 401]);
+    const concurrentRefreshSuccess = concurrentRefreshResponses.find(
+      (response) => response.status === 200,
+    )!;
+    const concurrentRefreshReplay = concurrentRefreshResponses.find(
+      (response) => response.status === 401,
+    )!;
+    expect(concurrentRefreshReplay.body.error.code).toBe('REFRESH_TOKEN_REUSED');
+
+    const accessAfterConcurrentReplay = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${concurrentRefreshSuccess.body.data.accessToken}`);
+    expect(accessAfterConcurrentReplay.status).toBe(401);
+    expect(accessAfterConcurrentReplay.body.error.code).toBe('SESSION_REVOKED');
 
     const firstPasswordChangeSession = await request(app).post('/api/v1/auth/login').send({
       email: ownerEmail,

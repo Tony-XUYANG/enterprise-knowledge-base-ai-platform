@@ -50,6 +50,21 @@ const credentialRateLimiter = rateLimit({
   },
 });
 
+const sessionCredentialRateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: 'AUTH_RATE_LIMITED',
+        message: '请求过于频繁，请稍后再试',
+      },
+    });
+  },
+});
+
 authRouter.post('/register', credentialRateLimiter, async (request, response) => {
   const result = await register(registerSchema.parse(request.body), sessionContext(request));
   response.status(201).json({ data: result });
@@ -60,13 +75,13 @@ authRouter.post('/login', credentialRateLimiter, async (request, response) => {
   response.json({ data: result });
 });
 
-authRouter.post('/refresh', credentialRateLimiter, async (request, response) => {
+authRouter.post('/refresh', sessionCredentialRateLimiter, async (request, response) => {
   const input = refreshSchema.parse(request.body);
-  const result = await refreshSession(input.refreshToken);
+  const result = await refreshSession(input.refreshToken, sessionContext(request));
   response.json({ data: result });
 });
 
-authRouter.post('/logout', credentialRateLimiter, async (request, response) => {
+authRouter.post('/logout', sessionCredentialRateLimiter, async (request, response) => {
   const input = refreshSchema.parse(request.body);
   await logout(input.refreshToken, sessionContext(request));
   response.status(204).send();

@@ -42,6 +42,12 @@ interface LoginUserRow extends UserRow {
 
 interface RefreshSessionRow extends UserRow {
   refresh_token_id: string;
+  refresh_token_expires_at: Date;
+}
+
+interface RefreshReplayRow {
+  session_id: string;
+  user_id: string;
 }
 
 interface ActiveSessionRow {
@@ -110,6 +116,12 @@ type LoginAttemptResult =
   | { kind: 'invalid' }
   | { kind: 'disabled' }
   | { kind: 'locked'; lockedUntil: Date; retryAfterSeconds: number };
+
+type RefreshAttemptResult =
+  | { kind: 'success'; result: AuthResult }
+  | { kind: 'invalid' }
+  | { kind: 'disabled' }
+  | { kind: 'reused' };
 
 const dummyPasswordHash = '$2b$12$nN55PR.IzlfSe7z6Pki2uup7PkPymPOUq8AQbKSy6jGiQyNl0RZQG';
 
@@ -386,12 +398,16 @@ export async function login(
   }
 }
 
-export async function refreshSession(refreshToken: string): Promise<AuthResult> {
+export async function refreshSession(
+  refreshToken: string,
+  context: SessionContext,
+): Promise<AuthResult> {
   const tokenHash = hashRefreshToken(refreshToken);
 
-  return withTransaction(async (client) => {
+  const attempt = await withTransaction<RefreshAttemptResult>(async (client) => {
     const result = await client.query<RefreshSessionRow>(
       `SELECT rt.id AS refresh_token_id,
+              rt.expires_at AS refresh_token_expires_at,
               u.id, u.email, u.password_hash, u.display_name, u.status
          FROM refresh_tokens rt
          JOIN users u ON u.id = rt.user_id
@@ -404,14 +420,53 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
     const session = result.rows[0];
 
     if (!session) {
-      throw new AppError(401, 'INVALID_REFRESH_TOKEN', '刷新令牌无效或已过期');
+      const replayResult = await client.query<RefreshReplayRow>(
+        `SELECT h.session_id, rt.user_id
+           FROM refresh_token_history h
+           JOIN refresh_tokens rt ON rt.id = h.session_id
+          WHERE h.token_hash = $1
+            AND h.expires_at > CURRENT_TIMESTAMP
+          FOR UPDATE OF rt`,
+        [tokenHash],
+      );
+      const replay = replayResult.rows[0];
+      if (!replay) return { kind: 'invalid' };
+
+      const revokedSession = await client.query<{ id: string }>(
+        `UPDATE refresh_tokens
+            SET revoked_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+            AND revoked_at IS NULL
+            AND expires_at > CURRENT_TIMESTAMP
+          RETURNING id`,
+        [replay.session_id],
+      );
+      if (revokedSession.rowCount) {
+        await recordSecurityEvent({
+          userId: replay.user_id,
+          eventType: 'refresh_token_reused',
+          outcome: 'failure',
+          context,
+          actorSessionId: replay.session_id,
+          targetSessionId: replay.session_id,
+          metadata: { reason: 'rotated_token_replayed' },
+        }, client);
+      }
+      return { kind: 'reused' };
     }
     if (session.status !== 'active') {
-      throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+      return { kind: 'disabled' };
     }
 
     const roles = await getRoles(client, session.id);
     const rotatedRefreshToken = createRefreshToken();
+    const rotatedRefreshTokenHash = hashRefreshToken(rotatedRefreshToken);
+    const rotatedRefreshTokenExpiresAt = refreshTokenExpiresAt();
+    await client.query(
+      `INSERT INTO refresh_token_history (token_hash, session_id, expires_at)
+       VALUES ($1, $2, $3)`,
+      [tokenHash, session.refresh_token_id, session.refresh_token_expires_at],
+    );
     await client.query(
       `UPDATE refresh_tokens
           SET token_hash = $1,
@@ -419,28 +474,49 @@ export async function refreshSession(refreshToken: string): Promise<AuthResult> 
               last_used_at = CURRENT_TIMESTAMP
         WHERE id = $3`,
       [
-        hashRefreshToken(rotatedRefreshToken),
-        refreshTokenExpiresAt(),
+        rotatedRefreshTokenHash,
+        rotatedRefreshTokenExpiresAt,
         session.refresh_token_id,
       ],
     );
+    await client.query(
+      'DELETE FROM refresh_token_history WHERE expires_at <= CURRENT_TIMESTAMP',
+    );
 
     return {
-      user: {
-        id: session.id,
-        email: session.email,
-        displayName: session.display_name,
-        roles,
+      kind: 'success',
+      result: {
+        user: {
+          id: session.id,
+          email: session.email,
+          displayName: session.display_name,
+          roles,
+        },
+        accessToken: await createAccessToken({
+          userId: session.id,
+          roles,
+          sessionId: session.refresh_token_id,
+        }),
+        refreshToken: rotatedRefreshToken,
+        accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
       },
-      accessToken: await createAccessToken({
-        userId: session.id,
-        roles,
-        sessionId: session.refresh_token_id,
-      }),
-      refreshToken: rotatedRefreshToken,
-      accessTokenExpiresIn: env.ACCESS_TOKEN_TTL_MINUTES * 60,
     };
   });
+
+  switch (attempt.kind) {
+    case 'success':
+      return attempt.result;
+    case 'disabled':
+      throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+    case 'reused':
+      throw new AppError(
+        401,
+        'REFRESH_TOKEN_REUSED',
+        '检测到刷新令牌重复使用，该设备会话已撤销',
+      );
+    case 'invalid':
+      throw new AppError(401, 'INVALID_REFRESH_TOKEN', '刷新令牌无效或已过期');
+  }
 }
 
 export async function logout(
