@@ -71,6 +71,22 @@ export async function handleAuthentication(
   }
 }
 
+export async function publicApiFetch(path: string, request: Request): Promise<Response> {
+  try {
+    return await fetch(`${apiBaseUrl}${path}`, {
+      method: request.method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...clientContextHeaders(request),
+      },
+      body: request.method === 'GET' ? undefined : await request.text(),
+      cache: 'no-store',
+    });
+  } catch {
+    return jsonError(502, 'API_UNAVAILABLE', '服务暂时不可用，请稍后重试');
+  }
+}
+
 async function backendFetch(path: string, accessToken: string, init?: RequestInit) {
   return fetch(`${apiBaseUrl}${path}`, {
     ...init,

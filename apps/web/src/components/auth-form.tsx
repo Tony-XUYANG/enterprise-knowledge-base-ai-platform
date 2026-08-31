@@ -138,6 +138,10 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
             </span>
           </label>
 
+          {!isRegister && (
+            <Link className="authRecoveryLink" href="/forgot-password">忘记密码？</Link>
+          )}
+
           {isRegister && (
             <PasswordStrength assessment={passwordAssessment} id="password-policy" />
           )}

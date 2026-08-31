@@ -6,10 +6,19 @@ import { env } from '../src/config/env.js';
 import { pool } from '../src/db/pool.js';
 import { createAccessToken } from '../src/security/tokens.js';
 
+const { sendPasswordResetEmailMock } = vi.hoisted(() => ({
+  sendPasswordResetEmailMock: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/modules/auth/password-reset-mailer.js', () => ({
+  sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
+
 const suffix = randomUUID();
 const ownerEmail = `owner-${suffix}@example.com`;
 const outsiderEmail = `outsider-${suffix}@example.com`;
 const lockoutEmail = `lockout-${suffix}@example.com`;
+const resetEmail = `reset-${suffix}@example.com`;
 const password = 'Training9!Secure';
 const fastgptApiKey = 'fastgpt-test-secret-2026';
 const app = createApp();
@@ -23,20 +32,20 @@ describe('authentication and AI app API', () => {
     await pool.query(
       `DELETE FROM conversations
         WHERE user_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail, lockoutEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail, resetEmail]],
     );
     await pool.query(
       `DELETE FROM ai_apps
         WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail, lockoutEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail, resetEmail]],
     );
     await pool.query(
       `DELETE FROM knowledge_bases
         WHERE owner_id IN (SELECT id FROM users WHERE email = ANY($1::varchar[]))`,
-      [[ownerEmail, outsiderEmail, lockoutEmail]],
+      [[ownerEmail, outsiderEmail, lockoutEmail, resetEmail]],
     );
     await pool.query('DELETE FROM users WHERE email = ANY($1::varchar[])', [
-      [ownerEmail, outsiderEmail, lockoutEmail],
+      [ownerEmail, outsiderEmail, lockoutEmail, resetEmail],
     ]);
     await pool.end();
   });
@@ -159,6 +168,175 @@ describe('authentication and AI app API', () => {
     });
     expect(duplicateRegistration.status).toBe(409);
     expect(duplicateRegistration.body.error.code).toBe('EMAIL_ALREADY_EXISTS');
+
+    const unknownResetRequest = await request(app)
+      .post('/api/v1/auth/password-reset/request')
+      .set('User-Agent', 'Password-Reset-Test/1.0')
+      .send({ email: `unknown-${suffix}@example.com` });
+    expect(unknownResetRequest.status).toBe(202);
+    expect(unknownResetRequest.body.data).toEqual({
+      accepted: true,
+      message: '如果该邮箱存在，重置链接将在几分钟内发送',
+    });
+    expect(sendPasswordResetEmailMock).not.toHaveBeenCalled();
+
+    const resetRegistration = await request(app).post('/api/v1/auth/register').send({
+      email: resetEmail,
+      password,
+      displayName: '密码重置测试',
+    });
+    expect(resetRegistration.status).toBe(201);
+    const resetOriginalAccessToken: string = resetRegistration.body.data.accessToken;
+    const resetOriginalRefreshToken: string = resetRegistration.body.data.refreshToken;
+
+    const expiringResetRequest = await request(app)
+      .post('/api/v1/auth/password-reset/request')
+      .set('User-Agent', 'Password-Reset-Test/1.0')
+      .send({ email: resetEmail });
+    expect(expiringResetRequest.status).toBe(202);
+    expect(expiringResetRequest.body.data).toEqual(unknownResetRequest.body.data);
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledTimes(1);
+    const expiringResetUrl = new URL(
+      sendPasswordResetEmailMock.mock.calls[0]![0].resetUrl,
+    );
+    const expiringResetToken = expiringResetUrl.searchParams.get('token')!;
+    expect(expiringResetToken.length).toBeGreaterThanOrEqual(40);
+    const storedResetToken = await pool.query<{
+      token_hash: string;
+      requested_ip: string | null;
+    }>(
+      `SELECT prt.token_hash, host(prt.requested_ip) AS requested_ip
+         FROM password_reset_tokens prt
+         JOIN users u ON u.id = prt.user_id
+        WHERE u.email = $1
+          AND prt.used_at IS NULL`,
+      [resetEmail],
+    );
+    expect(storedResetToken.rows).toHaveLength(1);
+    expect(storedResetToken.rows[0]!.requested_ip).toEqual(expect.any(String));
+    expect(JSON.stringify(storedResetToken.rows)).not.toContain(expiringResetToken);
+    await pool.query(
+      `UPDATE password_reset_tokens
+          SET created_at = CURRENT_TIMESTAMP - INTERVAL '2 minutes',
+              expires_at = CURRENT_TIMESTAMP - INTERVAL '1 minute'
+        WHERE token_hash = $1`,
+      [storedResetToken.rows[0]!.token_hash],
+    );
+    const expiredResetConfirmation = await request(app)
+      .post('/api/v1/auth/password-reset/confirm')
+      .send({ token: expiringResetToken, newPassword: 'Cobalt!Forest7Beacon' });
+    expect(expiredResetConfirmation.status).toBe(400);
+    expect(expiredResetConfirmation.body.error.code).toBe('INVALID_PASSWORD_RESET_TOKEN');
+
+    const activeResetRequest = await request(app)
+      .post('/api/v1/auth/password-reset/request')
+      .set('User-Agent', 'Password-Reset-Test/2.0')
+      .send({ email: resetEmail });
+    expect(activeResetRequest.status).toBe(202);
+    expect(sendPasswordResetEmailMock).toHaveBeenCalledTimes(2);
+    const activeResetUrl = new URL(
+      sendPasswordResetEmailMock.mock.calls[1]![0].resetUrl,
+    );
+    const activeResetToken = activeResetUrl.searchParams.get('token')!;
+
+    const weakResetConfirmation = await request(app)
+      .post('/api/v1/auth/password-reset/confirm')
+      .send({ token: activeResetToken, newPassword: 'Password123!' });
+    expect(weakResetConfirmation.status).toBe(400);
+    expect(weakResetConfirmation.body.error.code).toBe('PASSWORD_POLICY_VIOLATION');
+
+    const reusedResetPassword = await request(app)
+      .post('/api/v1/auth/password-reset/confirm')
+      .send({ token: activeResetToken, newPassword: password });
+    expect(reusedResetPassword.status).toBe(400);
+    expect(reusedResetPassword.body.error.code).toBe('PASSWORD_RECENTLY_USED');
+
+    const resetPassword = 'Cobalt!Forest7Beacon';
+    const concurrentResetConfirmations = await Promise.all([
+      request(app)
+        .post('/api/v1/auth/password-reset/confirm')
+        .set('User-Agent', 'Password-Reset-Confirm/1.0')
+        .send({ token: activeResetToken, newPassword: resetPassword }),
+      request(app)
+        .post('/api/v1/auth/password-reset/confirm')
+        .set('User-Agent', 'Password-Reset-Confirm/1.0')
+        .send({ token: activeResetToken, newPassword: resetPassword }),
+    ]);
+    expect(concurrentResetConfirmations.map((response) => response.status).sort())
+      .toEqual([204, 400]);
+    expect(concurrentResetConfirmations.find((response) => response.status === 400)!
+      .body.error.code).toBe('INVALID_PASSWORD_RESET_TOKEN');
+
+    const resetAccessAfterConfirmation = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${resetOriginalAccessToken}`);
+    expect(resetAccessAfterConfirmation.status).toBe(401);
+    expect(resetAccessAfterConfirmation.body.error.code).toBe('SESSION_REVOKED');
+    const resetRefreshAfterConfirmation = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: resetOriginalRefreshToken });
+    expect(resetRefreshAfterConfirmation.status).toBe(401);
+
+    const resetOldPasswordLogin = await request(app).post('/api/v1/auth/login').send({
+      email: resetEmail,
+      password,
+    });
+    expect(resetOldPasswordLogin.status).toBe(401);
+    const resetNewPasswordLogin = await request(app).post('/api/v1/auth/login').send({
+      email: resetEmail,
+      password: resetPassword,
+    });
+    expect(resetNewPasswordLogin.status).toBe(200);
+
+    const resetPasswordHistory = await pool.query<{ password_hash: string }>(
+      `SELECT h.password_hash
+         FROM user_password_history h
+         JOIN users u ON u.id = h.user_id
+        WHERE u.email = $1
+        ORDER BY h.created_at DESC, h.id DESC`,
+      [resetEmail],
+    );
+    expect(resetPasswordHistory.rows).toHaveLength(2);
+    expect(JSON.stringify(resetPasswordHistory.rows)).not.toContain(password);
+    expect(JSON.stringify(resetPasswordHistory.rows)).not.toContain(resetPassword);
+
+    const resetSecurityEvents = await request(app)
+      .get('/api/v1/auth/security-events?limit=20')
+      .set('Authorization', `Bearer ${resetNewPasswordLogin.body.data.accessToken}`);
+    expect(resetSecurityEvents.status).toBe(200);
+    expect(resetSecurityEvents.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'password_reset_requested',
+        outcome: 'success',
+      }),
+      expect.objectContaining({
+        eventType: 'password_reset_completed',
+        outcome: 'success',
+        userAgent: 'Password-Reset-Confirm/1.0',
+        metadata: {
+          revokedSessions: 1,
+          passwordHistoryLimit: env.PASSWORD_HISTORY_LIMIT,
+        },
+      }),
+    ]));
+    expect(JSON.stringify(resetSecurityEvents.body)).not.toContain(expiringResetToken);
+    expect(JSON.stringify(resetSecurityEvents.body)).not.toContain(activeResetToken);
+
+    sendPasswordResetEmailMock.mockRejectedValueOnce(new Error('SMTP unavailable'));
+    const failedDeliveryResetRequest = await request(app)
+      .post('/api/v1/auth/password-reset/request')
+      .send({ email: resetEmail });
+    expect(failedDeliveryResetRequest.status).toBe(202);
+    expect(failedDeliveryResetRequest.body.data).toEqual(unknownResetRequest.body.data);
+    const activeTokensAfterDeliveryFailure = await pool.query<{ total: string }>(
+      `SELECT count(*)::text AS total
+         FROM password_reset_tokens prt
+         JOIN users u ON u.id = prt.user_id
+        WHERE u.email = $1
+          AND prt.used_at IS NULL`,
+      [resetEmail],
+    );
+    expect(Number(activeTokensAfterDeliveryFailure.rows[0]!.total)).toBe(0);
 
     const invalidLogin = await request(app).post('/api/v1/auth/login').send({
       email: ownerEmail,

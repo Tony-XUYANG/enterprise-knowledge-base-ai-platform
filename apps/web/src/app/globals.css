@@ -427,12 +427,45 @@ a {
 }
 
 .authSwitch a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--primary);
   font-weight: 650;
 }
 
 .authSwitch a:hover {
   text-decoration: underline;
+}
+
+.authRecoveryLink {
+  justify-self: end;
+  margin-top: -8px;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.authRecoveryLink:hover {
+  text-decoration: underline;
+}
+
+.fieldWithIcon {
+  position: relative;
+  display: block;
+}
+
+.fieldWithIcon > svg {
+  position: absolute;
+  top: 12px;
+  left: 11px;
+  z-index: 1;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.fieldWithIcon > input {
+  padding-left: 38px !important;
 }
 
 /* Application shell */

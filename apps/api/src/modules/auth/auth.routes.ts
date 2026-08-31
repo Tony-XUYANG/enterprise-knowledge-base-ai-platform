@@ -1,10 +1,13 @@
 import { Router, type Request } from 'express';
 import rateLimit from 'express-rate-limit';
+import { env } from '../../config/env.js';
 import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import {
   changePasswordSchema,
   loginSchema,
+  passwordResetConfirmSchema,
+  passwordResetRequestSchema,
   refreshSchema,
   registerSchema,
   securityEventQuerySchema,
@@ -25,6 +28,12 @@ import {
   updateCurrentUser,
 } from './auth.service.js';
 import { getSecurityEvents } from './security-events.service.js';
+import { sendPasswordResetEmail } from './password-reset-mailer.js';
+import {
+  confirmPasswordReset,
+  invalidatePasswordReset,
+  requestPasswordReset,
+} from './password-reset.service.js';
 
 export const authRouter = Router();
 
@@ -65,6 +74,36 @@ const sessionCredentialRateLimiter = rateLimit({
   },
 });
 
+const passwordResetRequestRateLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: 'PASSWORD_RESET_RATE_LIMITED',
+        message: '密码重置请求过于频繁，请稍后再试',
+      },
+    });
+  },
+});
+
+const passwordResetConfirmRateLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: 'PASSWORD_RESET_RATE_LIMITED',
+        message: '密码重置尝试过于频繁，请稍后再试',
+      },
+    });
+  },
+});
+
 authRouter.post('/register', credentialRateLimiter, async (request, response) => {
   const result = await register(registerSchema.parse(request.body), sessionContext(request));
   response.status(201).json({ data: result });
@@ -86,6 +125,58 @@ authRouter.post('/logout', sessionCredentialRateLimiter, async (request, respons
   await logout(input.refreshToken, sessionContext(request));
   response.status(204).send();
 });
+
+authRouter.post(
+  '/password-reset/request',
+  passwordResetRequestRateLimiter,
+  async (request, response) => {
+    const startedAt = Date.now();
+    const context = sessionContext(request);
+    const delivery = await requestPasswordReset(
+      passwordResetRequestSchema.parse(request.body),
+      context,
+    );
+    if (delivery) {
+      try {
+        const resetUrl = new URL('/reset-password', env.WEB_BASE_URL);
+        resetUrl.searchParams.set('token', delivery.token);
+        await sendPasswordResetEmail({
+          email: delivery.email,
+          displayName: delivery.displayName,
+          resetUrl: resetUrl.toString(),
+          expiresInMinutes: env.PASSWORD_RESET_TOKEN_TTL_MINUTES,
+        });
+      } catch (error) {
+        await invalidatePasswordReset(delivery.id);
+        request.log.error({ err: error }, 'Password reset email delivery failed');
+      }
+    }
+
+    const minimumDurationMs = env.NODE_ENV === 'test' ? 0 : 350;
+    const remainingDelayMs = minimumDurationMs - (Date.now() - startedAt);
+    if (remainingDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingDelayMs));
+    }
+    response.status(202).json({
+      data: {
+        accepted: true,
+        message: '如果该邮箱存在，重置链接将在几分钟内发送',
+      },
+    });
+  },
+);
+
+authRouter.post(
+  '/password-reset/confirm',
+  passwordResetConfirmRateLimiter,
+  async (request, response) => {
+    await confirmPasswordReset(
+      passwordResetConfirmSchema.parse(request.body),
+      sessionContext(request),
+    );
+    response.status(204).send();
+  },
+);
 
 authRouter.patch('/password', authenticate, async (request, response) => {
   if (!request.auth) {

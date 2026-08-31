@@ -14,6 +14,7 @@ import {
   LogOut,
   LogIn,
   MapPin,
+  Mail,
   MonitorSmartphone,
   Save,
   ShieldCheck,
@@ -300,6 +301,10 @@ export function AccountSecurity() {
         return { title: '个人资料已更新', detail: '账号显示信息发生变更' };
       case 'password_changed':
         return { title: '密码已更新', detail: '所有设备会话已同步失效' };
+      case 'password_reset_requested':
+        return { title: '已请求密码重置', detail: '系统已受理一次性密码重置请求' };
+      case 'password_reset_completed':
+        return { title: '密码重置完成', detail: '密码已更新，所有设备会话已失效' };
       case 'refresh_token_reused':
         return { title: '检测到会话令牌重放', detail: '疑似会话凭据泄露，已自动撤销该设备' };
       case 'session_revoked':
@@ -617,20 +622,22 @@ export function AccountSecurity() {
                 const description = describeSecurityEvent(event);
                 const EventIcon = event.eventType === 'login_failed'
                   ? AlertTriangle
-                  : event.eventType === 'account_locked'
-                    || event.eventType === 'refresh_token_reused'
+                  : event.eventType === 'account_locked' || event.eventType === 'refresh_token_reused'
                     ? ShieldAlert
                     : event.eventType === 'account_unlocked'
                       ? ShieldCheck
-                  : event.eventType === 'login_succeeded'
-                    ? LogIn
-                    : event.eventType === 'profile_updated'
-                      ? UserRound
-                      : event.eventType === 'password_changed'
-                        ? KeyRound
-                        : event.eventType === 'account_registered'
-                          ? ShieldCheck
-                          : LogOut;
+                      : event.eventType === 'login_succeeded'
+                        ? LogIn
+                        : event.eventType === 'profile_updated'
+                          ? UserRound
+                          : event.eventType === 'password_changed'
+                            || event.eventType === 'password_reset_completed'
+                            ? KeyRound
+                            : event.eventType === 'password_reset_requested'
+                              ? Mail
+                              : event.eventType === 'account_registered'
+                                ? ShieldCheck
+                                : LogOut;
                 return (
                   <article className="securityEventRow" key={event.id}>
                     <span

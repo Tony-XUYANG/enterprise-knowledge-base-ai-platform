@@ -12,6 +12,8 @@ export type SecurityEventType =
   | 'account_unlocked'
   | 'profile_updated'
   | 'password_changed'
+  | 'password_reset_requested'
+  | 'password_reset_completed'
   | 'refresh_token_reused'
   | 'session_revoked'
   | 'all_sessions_revoked'

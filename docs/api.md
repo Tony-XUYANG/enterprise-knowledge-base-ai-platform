@@ -13,6 +13,8 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | POST | `/api/v1/auth/login` | No | Log in and issue tokens |
 | POST | `/api/v1/auth/refresh` | Refresh token | Rotate the refresh token |
 | POST | `/api/v1/auth/logout` | Refresh token | Revoke the refresh token |
+| POST | `/api/v1/auth/password-reset/request` | No | Request a generic password-reset email response |
+| POST | `/api/v1/auth/password-reset/confirm` | One-time reset token | Set a new password and revoke all sessions |
 | GET | `/api/v1/auth/me` | Bearer token | Read the current user |
 | PATCH | `/api/v1/auth/me` | Bearer token | Update the current user's display name |
 | PATCH | `/api/v1/auth/password` | Bearer token + current password | Change password and revoke all refresh sessions |
@@ -87,11 +89,19 @@ The request that reaches the threshold and every request during the lockout retu
 
 The user row is locked while the current password, strength policy, and retained bcrypt hashes are checked. A successful change writes the new hash, prunes older history, clears login-failure state, records the security event, and revokes every device session in the same transaction. A rejected change leaves the password, history, and sessions untouched. Only bcrypt hashes are retained; plaintext passwords are never stored or returned.
 
+## Password reset
+
+`POST /api/v1/auth/password-reset/request` accepts `{ "email": "..." }` and always returns HTTP `202` with the same body for active, disabled, and unknown accounts. Requests are limited to five per 15 minutes per observed client. For an active account, the API invalidates previous links, creates a 48-byte random token, stores only its SHA-256 hash, and sends the plaintext token only inside an SMTP-delivered link. The default expiry is 30 minutes and is configurable from 5-120 minutes with `PASSWORD_RESET_TOKEN_TTL_MINUTES`.
+
+`POST /api/v1/auth/password-reset/confirm` accepts `{ "token": "...", "newPassword": "..." }`. Valid tokens are consumed once under row locks. The new password must pass the normal identity-aware strength policy and recent-password history check. Success updates the password, consumes all outstanding reset links, clears login lockout state, revokes every device session, and records `password_reset_completed` in one transaction. Invalid, expired, consumed, and concurrent losing requests all return `INVALID_PASSWORD_RESET_TOKEN` without disclosing the reason.
+
+Local development sends mail to Mailpit at `localhost:1025`; its UI is available at `http://localhost:8025`. Production deployments configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, optional `SMTP_USER` / `SMTP_PASSWORD`, `MAIL_FROM`, and the public `WEB_BASE_URL` used in links. Password reset tokens and request bodies are redacted from API logs.
+
 ## Security activity
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login failures are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login and password-reset requests are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

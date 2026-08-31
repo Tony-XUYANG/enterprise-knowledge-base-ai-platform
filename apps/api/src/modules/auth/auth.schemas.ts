@@ -49,6 +49,15 @@ export const refreshSchema = z.object({
   refreshToken: z.string().min(40).max(200),
 });
 
+export const passwordResetRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(320),
+});
+
+export const passwordResetConfirmSchema = z.object({
+  token: z.string().min(40).max(200),
+  newPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),
+});
+
 export const sessionIdSchema = z.string().uuid();
 
 export const securityEventQuerySchema = z.object({
@@ -66,5 +75,7 @@ export const updateProfileSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
+export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
