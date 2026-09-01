@@ -23,6 +23,7 @@ erDiagram
     USERS ||--o{ REFRESH_TOKENS : authenticates
     REFRESH_TOKENS ||--o{ REFRESH_TOKEN_HISTORY : rotates
     USERS ||--o{ PASSWORD_RESET_TOKENS : resets
+    USERS ||--o{ EMAIL_VERIFICATION_TOKENS : verifies
     USERS ||--o| MFA_SETUP_CHALLENGES : configures
     USERS ||--o{ MFA_LOGIN_CHALLENGES : verifies
     USERS ||--o{ MFA_RECOVERY_CODES : recovers
@@ -47,6 +48,7 @@ erDiagram
 - 刷新令牌行同时作为稳定设备会话：轮换时原位替换令牌哈希并更新最近活动时间，不为同一设备制造重复会话；访问令牌携带会话 ID，支持识别和单独撤销当前设备。
 - `refresh_token_history` 只保存已轮换令牌的 SHA-256 哈希、所属会话和原到期时间。命中未过期历史哈希会在同一事务中撤销该设备当前会话并记录失败安全事件；过期历史在正常轮换时清理，令牌明文始终不落库。
 - `password_reset_tokens` 保存一次性随机令牌的 SHA-256 哈希、用户、到期/消费时间和请求 IP；同一用户的新请求会作废旧链接。确认重置按用户行、令牌行的固定顺序加锁，并在一个事务内执行密码历史写入、全部链接消费、登录锁定清零、设备会话撤销和安全事件记录。
+- `users.email_verified_at` 是登录邮箱是否完成验证的授权边界；迁移会回填历史账号，新注册账号保持为空且不能创建任何设备会话。`email_verification_tokens` 只保存一次性随机令牌的 SHA-256 哈希、到期/消费时间和请求 IP，新请求会原子作废旧链接，并发确认只有一个事务可以成功。
 - `users.mfa_secret_ciphertext` 只保存 AES-256-GCM 密文，并通过状态约束确保密钥和启用时间同时存在或同时为空；待确认密钥独立保存在有期限的 `mfa_setup_challenges` 中。
 - `mfa_login_challenges` 只保存登录挑战的 SHA-256 哈希，记录五分钟有效期、失败次数和一次性消费时间；密码阶段不创建刷新会话，验证器或恢复码成功后才签发设备会话。
 - `mfa_recovery_codes` 只保存规范化恢复码的 SHA-256 哈希和使用时间。使用恢复码、替换全部恢复码和关闭 MFA 均在用户行锁保护的事务中完成，防止并发重复消费。

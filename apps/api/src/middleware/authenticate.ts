@@ -5,6 +5,7 @@ import { verifyAccessToken, type AccessTokenPayload } from '../security/tokens.j
 
 interface AccessSessionRow {
   status: 'active' | 'disabled';
+  email_verified_at: Date | null;
   last_used_at: Date;
 }
 
@@ -16,7 +17,7 @@ async function validateAccessSession(auth: AccessTokenPayload): Promise<void> {
   }
 
   const result = await query<AccessSessionRow>(
-    `SELECT u.status, rt.last_used_at
+    `SELECT u.status, u.email_verified_at, rt.last_used_at
        FROM refresh_tokens rt
        JOIN users u ON u.id = rt.user_id
       WHERE rt.id = $1
@@ -32,6 +33,9 @@ async function validateAccessSession(auth: AccessTokenPayload): Promise<void> {
   }
   if (session.status !== 'active') {
     throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+  }
+  if (!session.email_verified_at) {
+    throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', '请先完成邮箱验证');
   }
 
   if (Date.now() - session.last_used_at.getTime() < sessionActivityWriteIntervalMs) return;

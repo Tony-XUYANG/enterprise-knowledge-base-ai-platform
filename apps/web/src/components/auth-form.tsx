@@ -19,7 +19,11 @@ import {
   PASSWORD_MAX_CHARACTERS,
   PASSWORD_MIN_CHARACTERS,
 } from '@/lib/password-policy';
-import type { MfaRequiredResult, User } from '@/lib/types';
+import type {
+  MfaRequiredResult,
+  RegistrationVerificationRequired,
+  User,
+} from '@/lib/types';
 import { Brand } from './brand';
 import { PasswordStrength } from './password-strength';
 
@@ -58,7 +62,9 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
     setSubmitting(true);
 
     try {
-      const result = await clientApi<User | MfaRequiredResult>(`/api/auth/${mode}`, {
+      const result = await clientApi<
+        User | MfaRequiredResult | RegistrationVerificationRequired
+      >(`/api/auth/${mode}`, {
         method: 'POST',
         body: JSON.stringify({
           email,
@@ -66,6 +72,11 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
           ...(isRegister ? { displayName } : {}),
         }),
       });
+      if ('verificationRequired' in result && result.verificationRequired) {
+        const params = new URLSearchParams({ email: result.email, registered: '1' });
+        router.replace(`/verify-email?${params.toString()}`);
+        return;
+      }
       if ('mfaRequired' in result && result.mfaRequired) {
         setMfaChallenge(result);
         setPassword('');
@@ -74,6 +85,15 @@ export function AuthForm({ mode, successMessage }: AuthFormProps) {
       router.replace('/overview');
       router.refresh();
     } catch (requestError) {
+      if (
+        !isRegister
+        && requestError instanceof ClientApiError
+        && requestError.code === 'EMAIL_VERIFICATION_REQUIRED'
+      ) {
+        const params = new URLSearchParams({ email: email.trim().toLowerCase() });
+        router.replace(`/verify-email?${params.toString()}`);
+        return;
+      }
       setError(
         requestError instanceof ClientApiError
           ? requestError.message

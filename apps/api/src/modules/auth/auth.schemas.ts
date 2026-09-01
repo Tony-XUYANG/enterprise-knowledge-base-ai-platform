@@ -71,6 +71,14 @@ export const passwordResetRequestSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(320),
 });
 
+export const emailVerificationRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(320),
+});
+
+export const emailVerificationConfirmSchema = z.object({
+  token: z.string().min(40).max(200),
+});
+
 export const passwordResetConfirmSchema = z.object({
   token: z.string().min(40).max(200),
   newPassword: z.string().min(1).max(PASSWORD_MAX_CHARACTERS),
@@ -98,6 +106,7 @@ export type MfaSetupInput = z.infer<typeof mfaSetupSchema>;
 export type MfaCodeInput = z.infer<typeof mfaCodeSchema>;
 export type MfaProtectedActionInput = z.infer<typeof mfaProtectedActionSchema>;
 export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
+export type EmailVerificationRequestInput = z.infer<typeof emailVerificationRequestSchema>;
 export type PasswordResetConfirmInput = z.infer<typeof passwordResetConfirmSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

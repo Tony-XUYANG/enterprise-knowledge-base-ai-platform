@@ -22,7 +22,9 @@ export type SecurityEventType =
   | 'mfa_enabled'
   | 'mfa_disabled'
   | 'mfa_recovery_codes_regenerated'
-  | 'mfa_login_failed';
+  | 'mfa_login_failed'
+  | 'email_verification_requested'
+  | 'email_verified';
 
 export type SecurityEventOutcome = 'success' | 'failure';
 

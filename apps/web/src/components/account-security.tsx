@@ -15,6 +15,7 @@ import {
   LogIn,
   MapPin,
   Mail,
+  MailCheck,
   MonitorSmartphone,
   Save,
   ShieldCheck,
@@ -299,6 +300,8 @@ export function AccountSecurity() {
             ? '已拦截停用账号的登录尝试'
             : event.metadata.reason === 'account_locked'
               ? '临时锁定期间拦截了新的登录尝试'
+              : event.metadata.reason === 'email_not_verified'
+                ? '邮箱尚未验证，未建立登录会话'
             : '已拦截凭据错误的登录尝试',
         };
       case 'account_locked':
@@ -331,6 +334,10 @@ export function AccountSecurity() {
         return { title: '恢复码已更新', detail: '旧恢复码已全部失效' };
       case 'mfa_login_failed':
         return { title: '双重验证失败', detail: '已拦截无效或过期的第二步验证' };
+      case 'email_verification_requested':
+        return { title: '已发送验证邮件', detail: '已创建一次性邮箱验证链接' };
+      case 'email_verified':
+        return { title: '邮箱验证完成', detail: '登录邮箱已确认并激活' };
     }
   }
 
@@ -349,7 +356,7 @@ export function AccountSecurity() {
             <strong>{user?.displayName ?? '加载中'}</strong>
             <small>{user?.email ?? ''}</small>
           </span>
-          <span className="settingsRole">成员</span>
+          <span className="settingsRole"><MailCheck size={13} />成员 · 邮箱已验证</span>
         </aside>
 
         <div className="settingsContent">
@@ -655,8 +662,10 @@ export function AccountSecurity() {
                             || event.eventType === 'password_reset_completed'
                             ? KeyRound
                             : event.eventType === 'password_reset_requested'
+                              || event.eventType === 'email_verification_requested'
                               ? Mail
                               : event.eventType === 'account_registered'
+                                || event.eventType === 'email_verified'
                                 || event.eventType === 'mfa_setup_started'
                                 || event.eventType === 'mfa_enabled'
                                 || event.eventType === 'mfa_disabled'

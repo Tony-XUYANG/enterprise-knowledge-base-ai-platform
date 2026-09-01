@@ -1,6 +1,10 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import type { AuthResult, MfaRequiredResult } from './types';
+import type {
+  AuthResult,
+  MfaRequiredResult,
+  RegistrationVerificationRequired,
+} from './types';
 
 const apiBaseUrl = process.env.API_BASE_URL ?? 'http://localhost:3001';
 const accessCookieName = 'kh_access_token';
@@ -35,8 +39,16 @@ async function setSessionCookies(session: AuthResult): Promise<void> {
   });
 }
 
-function isMfaRequired(result: AuthResult | MfaRequiredResult): result is MfaRequiredResult {
+function isMfaRequired(
+  result: AuthResult | MfaRequiredResult | RegistrationVerificationRequired,
+): result is MfaRequiredResult {
   return 'mfaRequired' in result && result.mfaRequired;
+}
+
+function isRegistrationVerificationRequired(
+  result: AuthResult | MfaRequiredResult | RegistrationVerificationRequired,
+): result is RegistrationVerificationRequired {
+  return 'verificationRequired' in result && result.verificationRequired;
 }
 
 export async function clearSessionCookies(): Promise<void> {
@@ -59,13 +71,20 @@ export async function handleAuthentication(
       body: await request.text(),
       cache: 'no-store',
     });
-    const payload = (await upstream.json()) as { data?: AuthResult | MfaRequiredResult };
+    const payload = (await upstream.json()) as {
+      data?: AuthResult | MfaRequiredResult | RegistrationVerificationRequired;
+    };
 
     if (!upstream.ok || !payload.data) {
       return NextResponse.json(payload, { status: upstream.status });
     }
 
     if (isMfaRequired(payload.data)) {
+      return NextResponse.json({ data: payload.data }, { status: upstream.status });
+    }
+
+    if (isRegistrationVerificationRequired(payload.data)) {
+      await clearSessionCookies();
       return NextResponse.json({ data: payload.data }, { status: upstream.status });
     }
 

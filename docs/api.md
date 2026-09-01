@@ -9,7 +9,9 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | Method | Path | Authentication | Purpose |
 | --- | --- | --- | --- |
 | GET | `/health` | No | Check API and database health |
-| POST | `/api/v1/auth/register` | No | Register and issue tokens |
+| POST | `/api/v1/auth/register` | No | Register and send an email-verification link |
+| POST | `/api/v1/auth/email-verification/resend` | No | Request a generic verification-email response |
+| POST | `/api/v1/auth/email-verification/confirm` | One-time verification token | Verify the login email |
 | POST | `/api/v1/auth/login` | No | Verify password; issue tokens or an MFA challenge |
 | POST | `/api/v1/auth/mfa/verify` | One-time MFA challenge | Verify TOTP/recovery code and issue tokens |
 | POST | `/api/v1/auth/refresh` | Refresh token | Rotate the refresh token |
@@ -81,6 +83,14 @@ Authenticated requests also advance `last_used_at`, with writes limited to at mo
 
 Registration and login share a 30-request-per-minute credential limiter. Refresh and logout use a separate 60-request-per-minute session-credential limiter, so routine rotation cannot consume the login budget and login attempts cannot prevent an active user from ending a session. Authenticated profile, password, and session-management endpoints remain outside both credential budgets.
 
+## Email verification
+
+`POST /api/v1/auth/register` creates the account without a session and returns `{ "verificationRequired": true, "email", "expiresIn" }`. It sends a 48-byte random token only through email and stores only its SHA-256 hash. The default 24-hour lifetime is configurable from 1-168 hours with `EMAIL_VERIFICATION_TOKEN_TTL_HOURS`. Existing accounts are marked verified when migration `013_add_email_verification.sql` is first applied.
+
+`POST /api/v1/auth/email-verification/confirm` accepts `{ "token": "..." }`. Confirmation locks the user and token rows, sets `email_verified_at`, consumes every outstanding link, and records `email_verified` in one transaction. Invalid, expired, consumed, and concurrent losing requests return `INVALID_EMAIL_VERIFICATION_TOKEN` without disclosing the reason.
+
+`POST /api/v1/auth/email-verification/resend` accepts an email and always returns HTTP `202` with the same body for unknown, verified, disabled, and unverified accounts. Eligible accounts receive a new link and all older links become unusable. Requests are limited to five per 15 minutes per observed client. Correct-password login for an unverified account returns `EMAIL_VERIFICATION_REQUIRED` and creates no access token, refresh token, MFA challenge, or device session.
+
 ## Multi-factor authentication
 
 MFA uses RFC 6238 TOTP with the standard 6-digit, 30-second authenticator profile. `POST /api/v1/auth/mfa/setup` requires the current password and returns an expiring QR data URL plus manual Base32 key. The pending secret and enabled secret are AES-256-GCM encrypted at rest. Setup expires after 10 minutes by default; only a valid current TOTP can enable it.
@@ -115,7 +125,7 @@ Local development sends mail to Mailpit at `localhost:1025`; its UI is available
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login and password-reset requests are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration and email verification, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, email-verification tokens, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login, email-verification resend, and password-reset requests are intentionally not persisted because no owner account exists for them.
 
 ## List queries and relation counts
 

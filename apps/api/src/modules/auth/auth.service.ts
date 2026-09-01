@@ -25,6 +25,10 @@ import type {
   RegisterInput,
   UpdateProfileInput,
 } from './auth.schemas.js';
+import {
+  createRegistrationEmailVerification,
+  type EmailVerificationDelivery,
+} from './email-verification.service.js';
 import { verifyMfaFactor } from './mfa.service.js';
 import { recordSecurityEvent } from './security-events.service.js';
 import { describeClientDevice } from './session-device.js';
@@ -35,6 +39,7 @@ interface UserRow {
   password_hash: string;
   display_name: string;
   status: 'active' | 'disabled';
+  email_verified_at: Date | null;
 }
 
 interface LoginUserRow extends UserRow {
@@ -81,6 +86,7 @@ export interface PublicUser {
   email: string;
   displayName: string;
   roles: string[];
+  emailVerifiedAt: string;
 }
 
 export interface AuthResult {
@@ -97,6 +103,10 @@ export interface MfaRequiredResult {
 }
 
 export type LoginResult = AuthResult | MfaRequiredResult;
+
+export interface RegistrationResult {
+  delivery: EmailVerificationDelivery;
+}
 
 interface IssuedSession {
   result: AuthResult;
@@ -136,6 +146,7 @@ type LoginAttemptResult =
   | { kind: 'mfa_required'; result: MfaRequiredResult }
   | { kind: 'invalid' }
   | { kind: 'disabled' }
+  | { kind: 'email_unverified' }
   | { kind: 'locked'; lockedUntil: Date; retryAfterSeconds: number };
 
 type MfaLoginAttemptResult =
@@ -148,6 +159,7 @@ type RefreshAttemptResult =
   | { kind: 'success'; result: AuthResult }
   | { kind: 'invalid' }
   | { kind: 'disabled' }
+  | { kind: 'email_unverified' }
   | { kind: 'reused' };
 
 const dummyPasswordHash = '$2b$12$nN55PR.IzlfSe7z6Pki2uup7PkPymPOUq8AQbKSy6jGiQyNl0RZQG';
@@ -182,7 +194,7 @@ async function getRoles(client: PoolClient, userId: string): Promise<string[]> {
 
 async function issueSession(
   client: PoolClient,
-  user: Pick<UserRow, 'id' | 'email' | 'display_name'>,
+  user: Pick<UserRow, 'id' | 'email' | 'display_name' | 'email_verified_at'>,
   roles: string[],
   context: SessionContext,
 ): Promise<IssuedSession> {
@@ -212,6 +224,7 @@ async function issueSession(
         email: user.email,
         displayName: user.display_name,
         roles,
+        emailVerifiedAt: user.email_verified_at!.toISOString(),
       },
       accessToken: await createAccessToken({ userId: user.id, roles, sessionId }),
       refreshToken,
@@ -223,7 +236,7 @@ async function issueSession(
 export async function register(
   input: RegisterInput,
   context: SessionContext,
-): Promise<AuthResult> {
+): Promise<RegistrationResult> {
   const passwordHash = await hashPassword(input.password);
 
   return withTransaction(async (client) => {
@@ -233,7 +246,7 @@ export async function register(
       const userResult = await client.query<UserRow>(
         `INSERT INTO users (email, password_hash, display_name)
          VALUES ($1, $2, $3)
-         RETURNING id, email, password_hash, display_name, status`,
+         RETURNING id, email, password_hash, display_name, status, email_verified_at`,
         [input.email, passwordHash, input.displayName],
       );
       user = userResult.rows[0]!;
@@ -262,15 +275,15 @@ export async function register(
       [user.id, passwordHash],
     );
 
-    const issuedSession = await issueSession(client, user, ['member'], context);
     await recordSecurityEvent({
       userId: user.id,
       eventType: 'account_registered',
       outcome: 'success',
       context,
-      actorSessionId: issuedSession.sessionId,
     }, client);
-    return issuedSession.result;
+    return {
+      delivery: await createRegistrationEmailVerification(client, user, context),
+    };
   });
 }
 
@@ -282,7 +295,7 @@ export async function login(
     const userResult = await client.query<LoginUserRow>(
       `SELECT id, email, password_hash, display_name, status,
               failed_login_attempts, last_failed_login_at, locked_until,
-              mfa_secret_ciphertext, mfa_enabled_at
+              mfa_secret_ciphertext, mfa_enabled_at, email_verified_at
          FROM users
         WHERE email = $1
         FOR UPDATE`,
@@ -390,6 +403,25 @@ export async function login(
       return { kind: 'disabled' };
     }
 
+    if (!user.email_verified_at) {
+      await client.query(
+        `UPDATE users
+            SET failed_login_attempts = 0,
+                last_failed_login_at = NULL,
+                locked_until = NULL
+          WHERE id = $1`,
+        [user.id],
+      );
+      await recordSecurityEvent({
+        userId: user.id,
+        eventType: 'login_failed',
+        outcome: 'failure',
+        context,
+        metadata: { reason: 'email_not_verified' },
+      }, client);
+      return { kind: 'email_unverified' };
+    }
+
     if (user.mfa_secret_ciphertext && user.mfa_enabled_at) {
       const mfaToken = createMfaChallengeToken();
       const expiresAt = addMinutes(new Date(), env.MFA_LOGIN_CHALLENGE_TTL_MINUTES);
@@ -448,6 +480,8 @@ export async function login(
       return attempt.result;
     case 'disabled':
       throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+    case 'email_unverified':
+      throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', '请先完成邮箱验证');
     case 'locked':
       throw lockoutError(attempt.lockedUntil, attempt.retryAfterSeconds);
     case 'invalid':
@@ -465,7 +499,7 @@ export async function verifyMfaLogin(
               c.expires_at AS challenge_expires_at, c.consumed_at,
               u.id, u.email, u.password_hash, u.display_name, u.status,
               u.failed_login_attempts, u.last_failed_login_at, u.locked_until,
-              u.mfa_secret_ciphertext, u.mfa_enabled_at
+              u.mfa_secret_ciphertext, u.mfa_enabled_at, u.email_verified_at
          FROM mfa_login_challenges c
          JOIN users u ON u.id = c.user_id
         WHERE c.token_hash = $1
@@ -482,6 +516,7 @@ export async function verifyMfaLogin(
       || challenge.attempt_count >= env.MFA_MAX_ATTEMPTS
       || !challenge.mfa_secret_ciphertext
       || !challenge.mfa_enabled_at
+      || !challenge.email_verified_at
     ) {
       if (!challenge.consumed_at) {
         await client.query(
@@ -501,7 +536,9 @@ export async function verifyMfaLogin(
               ? 'challenge_consumed'
               : challenge.attempt_count >= env.MFA_MAX_ATTEMPTS
                 ? 'attempt_limit_reached'
-                : 'mfa_not_enabled',
+                : !challenge.email_verified_at
+                  ? 'email_not_verified'
+                  : 'mfa_not_enabled',
         },
       }, client);
       return { kind: 'invalid_challenge' };
@@ -588,7 +625,8 @@ export async function refreshSession(
     const result = await client.query<RefreshSessionRow>(
       `SELECT rt.id AS refresh_token_id,
               rt.expires_at AS refresh_token_expires_at,
-              u.id, u.email, u.password_hash, u.display_name, u.status
+              u.id, u.email, u.password_hash, u.display_name, u.status,
+              u.email_verified_at
          FROM refresh_tokens rt
          JOIN users u ON u.id = rt.user_id
         WHERE rt.token_hash = $1
@@ -637,6 +675,9 @@ export async function refreshSession(
     if (session.status !== 'active') {
       return { kind: 'disabled' };
     }
+    if (!session.email_verified_at) {
+      return { kind: 'email_unverified' };
+    }
 
     const roles = await getRoles(client, session.id);
     const rotatedRefreshToken = createRefreshToken();
@@ -671,6 +712,7 @@ export async function refreshSession(
           email: session.email,
           displayName: session.display_name,
           roles,
+          emailVerifiedAt: session.email_verified_at.toISOString(),
         },
         accessToken: await createAccessToken({
           userId: session.id,
@@ -688,6 +730,8 @@ export async function refreshSession(
       return attempt.result;
     case 'disabled':
       throw new AppError(403, 'USER_DISABLED', '账号已被停用');
+    case 'email_unverified':
+      throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', '请先完成邮箱验证');
     case 'reused':
       throw new AppError(
         401,
@@ -734,7 +778,7 @@ export async function changePassword(
 ): Promise<void> {
   await withTransaction(async (client) => {
     const result = await client.query<UserRow>(
-      `SELECT id, email, password_hash, display_name, status
+      `SELECT id, email, password_hash, display_name, status, email_verified_at
          FROM users
         WHERE id = $1
         FOR UPDATE`,
@@ -861,7 +905,7 @@ export async function updateCurrentUser(
 ): Promise<PublicUser> {
   return withTransaction(async (client) => {
     const result = await client.query<UserRow>(
-      `SELECT id, email, password_hash, display_name, status
+      `SELECT id, email, password_hash, display_name, status, email_verified_at
          FROM users
         WHERE id = $1
         FOR UPDATE`,
@@ -898,6 +942,7 @@ export async function updateCurrentUser(
       email: updatedUser.email,
       displayName: updatedUser.display_name,
       roles: await getRoles(client, userId),
+      emailVerifiedAt: user.email_verified_at!.toISOString(),
     };
   });
 }
@@ -1047,9 +1092,10 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
     email: string;
     display_name: string;
     status: 'active' | 'disabled';
+    email_verified_at: Date | null;
     roles: string[];
   }>(
-    `SELECT u.id, u.email, u.display_name, u.status,
+    `SELECT u.id, u.email, u.display_name, u.status, u.email_verified_at,
             coalesce(
               array_agg(r.code ORDER BY r.code) FILTER (WHERE r.code IS NOT NULL),
               ARRAY[]::varchar[]
@@ -1058,7 +1104,7 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
        LEFT JOIN user_roles ur ON ur.user_id = u.id
        LEFT JOIN roles r ON r.id = ur.role_id
       WHERE u.id = $1
-      GROUP BY u.id`,
+      GROUP BY u.id, u.email_verified_at`,
     [userId],
   );
   const user = result.rows[0];
@@ -1075,5 +1121,6 @@ export async function getCurrentUser(userId: string): Promise<PublicUser> {
     email: user.email,
     displayName: user.display_name,
     roles: user.roles,
+    emailVerifiedAt: user.email_verified_at!.toISOString(),
   };
 }

@@ -3,6 +3,7 @@ export interface User {
   email: string;
   displayName: string;
   roles: string[];
+  emailVerifiedAt: string;
 }
 
 export interface SessionSummary {
@@ -51,7 +52,9 @@ export type SecurityEventType =
   | 'mfa_enabled'
   | 'mfa_disabled'
   | 'mfa_recovery_codes_regenerated'
-  | 'mfa_login_failed';
+  | 'mfa_login_failed'
+  | 'email_verification_requested'
+  | 'email_verified';
 
 export interface SecurityEvent {
   id: string;
@@ -341,6 +344,12 @@ export interface AuthResult {
 export interface MfaRequiredResult {
   mfaRequired: true;
   mfaToken: string;
+  expiresIn: number;
+}
+
+export interface RegistrationVerificationRequired {
+  verificationRequired: true;
+  email: string;
   expiresIn: number;
 }
 

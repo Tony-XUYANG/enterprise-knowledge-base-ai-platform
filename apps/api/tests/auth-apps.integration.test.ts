@@ -10,8 +10,16 @@ const { sendPasswordResetEmailMock } = vi.hoisted(() => ({
   sendPasswordResetEmailMock: vi.fn().mockResolvedValue(undefined),
 }));
 
+const { sendEmailVerificationMessageMock } = vi.hoisted(() => ({
+  sendEmailVerificationMessageMock: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../src/modules/auth/password-reset-mailer.js', () => ({
   sendPasswordResetEmail: sendPasswordResetEmailMock,
+}));
+
+vi.mock('../src/modules/auth/email-verification-mailer.js', () => ({
+  sendEmailVerificationMessage: sendEmailVerificationMessageMock,
 }));
 
 const suffix = randomUUID();
@@ -22,6 +30,13 @@ const resetEmail = `reset-${suffix}@example.com`;
 const password = 'Training9!Secure';
 const fastgptApiKey = 'fastgpt-test-secret-2026';
 const app = createApp();
+
+async function verifyTestEmail(email: string): Promise<void> {
+  await pool.query(
+    'UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE email = $1',
+    [email],
+  );
+}
 
 describe('authentication and AI app API', () => {
   beforeAll(async () => {
@@ -105,12 +120,21 @@ describe('authentication and AI app API', () => {
       displayName: '项目所有者',
     });
     expect(ownerRegistration.status).toBe(201);
-    expect(ownerRegistration.body.data.user.roles).toEqual(['member']);
-    expect(ownerRegistration.body.data.accessToken).toEqual(expect.any(String));
-    expect(ownerRegistration.body.data.refreshToken).toEqual(expect.any(String));
-
-    const ownerAccessToken: string = ownerRegistration.body.data.accessToken;
-    const originalRefreshToken: string = ownerRegistration.body.data.refreshToken;
+    expect(ownerRegistration.body.data).toMatchObject({
+      verificationRequired: true,
+      email: ownerEmail,
+      expiresIn: expect.any(Number),
+    });
+    expect(ownerRegistration.body.data.accessToken).toBeUndefined();
+    await verifyTestEmail(ownerEmail);
+    const ownerLogin = await request(app).post('/api/v1/auth/login').send({
+      email: ownerEmail,
+      password,
+    });
+    expect(ownerLogin.status).toBe(200);
+    expect(ownerLogin.body.data.user.roles).toEqual(['member']);
+    const ownerAccessToken: string = ownerLogin.body.data.accessToken;
+    const originalRefreshToken: string = ownerLogin.body.data.refreshToken;
     const initialPasswordHistory = await pool.query<{ password_hash: string }>(
       `SELECT h.password_hash
          FROM user_password_history h
@@ -121,8 +145,12 @@ describe('authentication and AI app API', () => {
     expect(initialPasswordHistory.rows).toHaveLength(1);
     expect(initialPasswordHistory.rows[0]!.password_hash).not.toContain(password);
 
+    const ownerUserResult = await pool.query<{ id: string }>(
+      'SELECT id FROM users WHERE email = $1',
+      [ownerEmail],
+    );
     const sessionlessAccessToken = await createAccessToken({
-      userId: ownerRegistration.body.data.user.id,
+      userId: ownerUserResult.rows[0]!.id,
       roles: ['member'],
     });
     const sessionlessAccess = await request(app)
@@ -186,8 +214,14 @@ describe('authentication and AI app API', () => {
       displayName: '密码重置测试',
     });
     expect(resetRegistration.status).toBe(201);
-    const resetOriginalAccessToken: string = resetRegistration.body.data.accessToken;
-    const resetOriginalRefreshToken: string = resetRegistration.body.data.refreshToken;
+    await verifyTestEmail(resetEmail);
+    const resetLogin = await request(app).post('/api/v1/auth/login').send({
+      email: resetEmail,
+      password,
+    });
+    expect(resetLogin.status).toBe(200);
+    const resetOriginalAccessToken: string = resetLogin.body.data.accessToken;
+    const resetOriginalRefreshToken: string = resetLogin.body.data.refreshToken;
 
     const expiringResetRequest = await request(app)
       .post('/api/v1/auth/password-reset/request')
@@ -351,7 +385,13 @@ describe('authentication and AI app API', () => {
       displayName: '其他用户',
     });
     expect(outsiderRegistration.status).toBe(201);
-    const outsiderAccessToken: string = outsiderRegistration.body.data.accessToken;
+    await verifyTestEmail(outsiderEmail);
+    const outsiderLogin = await request(app).post('/api/v1/auth/login').send({
+      email: outsiderEmail,
+      password,
+    });
+    expect(outsiderLogin.status).toBe(200);
+    const outsiderAccessToken: string = outsiderLogin.body.data.accessToken;
 
     const lockoutRegistration = await request(app).post('/api/v1/auth/register').send({
       email: lockoutEmail,
@@ -359,6 +399,7 @@ describe('authentication and AI app API', () => {
       displayName: '锁定保护测试',
     });
     expect(lockoutRegistration.status).toBe(201);
+    await verifyTestEmail(lockoutEmail);
 
     const concurrentFailures = await Promise.all(
       Array.from({ length: env.LOGIN_FAILURE_LIMIT }, () => (
@@ -502,8 +543,11 @@ describe('authentication and AI app API', () => {
       .get('/api/v1/auth/security-events?limit=10')
       .set('Authorization', `Bearer ${outsiderAccessToken}`);
     expect(outsiderSecurityEvents.status).toBe(200);
-    expect(outsiderSecurityEvents.body.data.items).toHaveLength(1);
-    expect(outsiderSecurityEvents.body.data.items[0].eventType).toBe('account_registered');
+    expect(outsiderSecurityEvents.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'account_registered' }),
+      expect.objectContaining({ eventType: 'email_verification_requested' }),
+      expect.objectContaining({ eventType: 'login_succeeded' }),
+    ]));
     expect(
       ownerSecurityEvents.body.data.items.map((event: { id: string }) => event.id),
     ).not.toContain(outsiderSecurityEvents.body.data.items[0].id);

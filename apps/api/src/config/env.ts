@@ -23,6 +23,7 @@ const envSchema = z.object({
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
   PASSWORD_HISTORY_LIMIT: z.coerce.number().int().min(2).max(10).default(5),
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(120).default(30),
+  EMAIL_VERIFICATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   MFA_ISSUER: z.string().trim().min(1).max(80).default('KnowledgeHub'),
   MFA_LOGIN_CHALLENGE_TTL_MINUTES: z.coerce.number().int().min(1).max(15).default(5),
   MFA_SETUP_CHALLENGE_TTL_MINUTES: z.coerce.number().int().min(5).max(30).default(10),

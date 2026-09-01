@@ -476,6 +476,38 @@ a {
   font-size: 12px;
 }
 
+.verificationMark {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 20px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.verificationMark.success {
+  background: #e9f4ec;
+  color: #237447;
+}
+
+.verificationTitleGroup {
+  margin-bottom: 24px;
+}
+
+.verificationTitleGroup p {
+  overflow-wrap: anywhere;
+}
+
+.verificationResult {
+  display: grid;
+}
+
+.verificationResult .authTitleGroup {
+  margin-bottom: 24px;
+}
+
 .fieldWithIcon {
   position: relative;
   display: block;
@@ -705,6 +737,9 @@ a {
 }
 
 .settingsRole {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   grid-column: 2;
   color: var(--text-muted);
   font-size: 11px;

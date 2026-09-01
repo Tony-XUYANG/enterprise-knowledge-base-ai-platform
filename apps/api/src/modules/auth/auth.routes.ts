@@ -5,6 +5,8 @@ import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import {
   changePasswordSchema,
+  emailVerificationConfirmSchema,
+  emailVerificationRequestSchema,
   loginSchema,
   mfaCodeSchema,
   mfaLoginVerifySchema,
@@ -41,6 +43,12 @@ import {
 } from './mfa.service.js';
 import { getSecurityEvents } from './security-events.service.js';
 import { sendPasswordResetEmail } from './password-reset-mailer.js';
+import { sendEmailVerificationMessage } from './email-verification-mailer.js';
+import {
+  confirmEmailVerification,
+  invalidateEmailVerification,
+  requestEmailVerification,
+} from './email-verification.service.js';
 import {
   confirmPasswordReset,
   invalidatePasswordReset,
@@ -116,10 +124,110 @@ const passwordResetConfirmRateLimiter = rateLimit({
   },
 });
 
-authRouter.post('/register', credentialRateLimiter, async (request, response) => {
-  const result = await register(registerSchema.parse(request.body), sessionContext(request));
-  response.status(201).json({ data: result });
+const emailVerificationRequestRateLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: 'EMAIL_VERIFICATION_RATE_LIMITED',
+        message: '验证邮件请求过于频繁，请稍后再试',
+      },
+    });
+  },
 });
+
+const emailVerificationConfirmRateLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: (_request, response) => {
+    response.status(429).json({
+      error: {
+        code: 'EMAIL_VERIFICATION_RATE_LIMITED',
+        message: '邮箱验证尝试过于频繁，请稍后再试',
+      },
+    });
+  },
+});
+
+authRouter.post('/register', credentialRateLimiter, async (request, response) => {
+  const context = sessionContext(request);
+  const result = await register(registerSchema.parse(request.body), context);
+  try {
+    const verificationUrl = new URL('/verify-email', env.WEB_BASE_URL);
+    verificationUrl.searchParams.set('token', result.delivery.token);
+    await sendEmailVerificationMessage({
+      email: result.delivery.email,
+      displayName: result.delivery.displayName,
+      verificationUrl: verificationUrl.toString(),
+      expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+    });
+  } catch (error) {
+    await invalidateEmailVerification(result.delivery.id);
+    request.log.error({ err: error }, 'Email verification delivery failed');
+  }
+  response.status(201).json({
+    data: {
+      verificationRequired: true,
+      email: result.delivery.email,
+      expiresIn: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 60 * 60,
+    },
+  });
+});
+
+authRouter.post(
+  '/email-verification/resend',
+  emailVerificationRequestRateLimiter,
+  async (request, response) => {
+    const startedAt = Date.now();
+    const context = sessionContext(request);
+    const delivery = await requestEmailVerification(
+      emailVerificationRequestSchema.parse(request.body),
+      context,
+    );
+    if (delivery) {
+      try {
+        const verificationUrl = new URL('/verify-email', env.WEB_BASE_URL);
+        verificationUrl.searchParams.set('token', delivery.token);
+        await sendEmailVerificationMessage({
+          email: delivery.email,
+          displayName: delivery.displayName,
+          verificationUrl: verificationUrl.toString(),
+          expiresInHours: env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS,
+        });
+      } catch (error) {
+        await invalidateEmailVerification(delivery.id);
+        request.log.error({ err: error }, 'Email verification delivery failed');
+      }
+    }
+
+    const minimumDurationMs = env.NODE_ENV === 'test' ? 0 : 350;
+    const remainingDelayMs = minimumDurationMs - (Date.now() - startedAt);
+    if (remainingDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingDelayMs));
+    }
+    response.status(202).json({
+      data: {
+        accepted: true,
+        message: '如果该邮箱需要验证，新链接将在几分钟内发送',
+      },
+    });
+  },
+);
+
+authRouter.post(
+  '/email-verification/confirm',
+  emailVerificationConfirmRateLimiter,
+  async (request, response) => {
+    const input = emailVerificationConfirmSchema.parse(request.body);
+    await confirmEmailVerification(input.token, sessionContext(request));
+    response.status(204).send();
+  },
+);
 
 authRouter.post('/login', credentialRateLimiter, async (request, response) => {
   const result = await login(loginSchema.parse(request.body), sessionContext(request));

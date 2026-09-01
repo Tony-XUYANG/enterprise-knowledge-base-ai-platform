@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { generate } from 'otplib';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { pool } from '../src/db/pool.js';
+
+const { sendEmailVerificationMessageMock } = vi.hoisted(() => ({
+  sendEmailVerificationMessageMock: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/modules/auth/email-verification-mailer.js', () => ({
+  sendEmailVerificationMessage: sendEmailVerificationMessageMock,
+}));
 
 const email = `mfa-${randomUUID()}@example.com`;
 const password = 'MfaTesting9!Secure';
@@ -26,7 +34,13 @@ describe('MFA authentication and account management', () => {
       displayName: 'MFA 测试用户',
     });
     expect(registration.status).toBe(201);
-    const primaryAccessToken: string = registration.body.data.accessToken;
+    await pool.query(
+      'UPDATE users SET email_verified_at = CURRENT_TIMESTAMP WHERE email = $1',
+      [email],
+    );
+    const primaryLogin = await request(app).post('/api/v1/auth/login').send({ email, password });
+    expect(primaryLogin.status).toBe(200);
+    const primaryAccessToken: string = primaryLogin.body.data.accessToken;
 
     const secondaryLogin = await request(app).post('/api/v1/auth/login').send({ email, password });
     expect(secondaryLogin.status).toBe(200);
