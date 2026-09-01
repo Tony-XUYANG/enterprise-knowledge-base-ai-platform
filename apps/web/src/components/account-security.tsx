@@ -338,6 +338,20 @@ export function AccountSecurity() {
         return { title: '已发送验证邮件', detail: '已创建一次性邮箱验证链接' };
       case 'email_verified':
         return { title: '邮箱验证完成', detail: '登录邮箱已确认并激活' };
+      case 'user_role_changed':
+        return {
+          title: '账号角色已调整',
+          detail: event.metadata.role === 'admin'
+            ? '管理员已授予账号管理权限，原有设备会话已失效'
+            : '管理员已将账号调整为普通成员，原有设备会话已失效',
+        };
+      case 'user_status_changed':
+        return {
+          title: event.metadata.status === 'disabled' ? '账号已被停用' : '账号已重新启用',
+          detail: event.metadata.status === 'disabled'
+            ? '管理员已停用账号并撤销全部设备会话'
+            : '管理员已恢复账号登录权限',
+        };
     }
   }
 
@@ -356,7 +370,10 @@ export function AccountSecurity() {
             <strong>{user?.displayName ?? '加载中'}</strong>
             <small>{user?.email ?? ''}</small>
           </span>
-          <span className="settingsRole"><MailCheck size={13} />成员 · 邮箱已验证</span>
+          <span className="settingsRole">
+            <MailCheck size={13} />
+            {user?.roles.includes('admin') ? '管理员' : '成员'} · 邮箱已验证
+          </span>
         </aside>
 
         <div className="settingsContent">
@@ -670,6 +687,8 @@ export function AccountSecurity() {
                                 || event.eventType === 'mfa_enabled'
                                 || event.eventType === 'mfa_disabled'
                                 || event.eventType === 'mfa_recovery_codes_regenerated'
+                                || event.eventType === 'user_role_changed'
+                                || event.eventType === 'user_status_changed'
                                 ? ShieldCheck
                                 : LogOut;
                 return (

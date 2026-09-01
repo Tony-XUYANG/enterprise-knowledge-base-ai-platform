@@ -4160,6 +4160,255 @@ a {
   }
 }
 
+.memberTableHeader,
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.5fr) 148px 132px 64px 88px 44px;
+  align-items: center;
+  gap: 16px;
+}
+
+.memberTableHeader {
+  min-height: 42px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+  padding: 0 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.memberRow {
+  min-height: 88px;
+  border-bottom: 1px solid #e9eeec;
+  padding: 12px 18px;
+}
+
+.memberRow:hover {
+  background: #fbfcfc;
+}
+
+.memberIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.memberIdentity > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.memberIdentity strong,
+.memberIdentity small,
+.memberMetaLine {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberIdentity strong {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+}
+
+.memberIdentity strong em {
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background: #edf0ef;
+  padding: 2px 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.memberIdentity small,
+.memberMetaLine {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.memberMetaLine {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.memberAvatar {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  border: 1px solid #c9ddd8;
+  border-radius: 50%;
+  background: #e9f4f2;
+  color: var(--primary-hover);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.memberRoleSelect {
+  display: inline-flex;
+  width: 138px;
+  height: 34px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 0 7px 0 9px;
+  color: var(--text-secondary);
+}
+
+.memberRoleSelect:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgb(15 118 110 / 10%);
+}
+
+.memberRoleSelect select {
+  min-width: 0;
+  height: 32px;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  outline: 0;
+}
+
+.memberRoleSelect:has(select:disabled) {
+  background: #f5f7f6;
+  color: var(--text-muted);
+}
+
+.memberSecurityState {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.memberVerification {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.memberVerification.verified {
+  color: var(--primary-hover);
+}
+
+.memberVerification.pending {
+  color: var(--warning);
+}
+
+.memberSecurityState small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.memberSessions {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.memberActions {
+  min-width: 36px;
+}
+
+.memberFilterSelect select {
+  min-width: 84px;
+}
+
+@media (max-width: 1120px) {
+  .memberTableHeader,
+  .memberRow {
+    grid-template-columns: minmax(230px, 1.4fr) 140px 120px 84px 44px;
+  }
+
+  .memberTableHeader > :nth-child(4),
+  .memberSessions {
+    display: none;
+  }
+
+  .memberToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memberToolbar .searchBox {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .memberToolbarControls {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .memberFilterSelect {
+    width: 100%;
+  }
+
+  .memberFilterSelect select {
+    flex: 1;
+  }
+
+  .memberTableHeader {
+    display: none;
+  }
+
+  .memberRow {
+    min-height: 146px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto;
+    gap: 9px 12px;
+    padding: 14px;
+  }
+
+  .memberIdentity {
+    grid-column: 1 / 3;
+    grid-row: 1;
+  }
+
+  .memberRoleSelect {
+    width: 138px;
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .memberSecurityState {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .memberRow > .statusBadge {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .memberActions {
+    grid-column: 2;
+    grid-row: 3;
+    align-self: end;
+    justify-self: end;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -7,6 +7,7 @@ import {
   LogOut,
   MessagesSquare,
   Settings,
+  UsersRound,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -16,7 +17,7 @@ import type { User } from '@/lib/types';
 import { Brand } from './brand';
 
 interface WorkspaceShellProps {
-  active: 'overview' | 'apps' | 'knowledge-bases' | 'conversations' | 'settings';
+  active: 'overview' | 'apps' | 'knowledge-bases' | 'conversations' | 'members' | 'settings';
   title: string;
   children: ReactNode;
 }
@@ -35,6 +36,13 @@ const navigation = [
     href: '/conversations',
     label: '对话记录',
     icon: MessagesSquare,
+  },
+  {
+    id: 'members' as const,
+    href: '/members',
+    label: '成员管理',
+    icon: UsersRound,
+    adminOnly: true,
   },
   { id: 'settings' as const, href: '/settings', label: '账户设置', icon: Settings },
 ];
@@ -73,6 +81,10 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
     () => user?.displayName.trim().slice(0, 1).toUpperCase() || 'U',
     [user],
   );
+  const visibleNavigation = useMemo(
+    () => navigation.filter((item) => !('adminOnly' in item) || user?.roles.includes('admin')),
+    [user],
+  );
 
   async function logout() {
     try {
@@ -88,7 +100,7 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
       <aside className="sidebar">
         <Brand href="/overview" />
         <nav className="sidebarNav" aria-label="主导航">
-          {navigation.map((item) => {
+          {visibleNavigation.map((item) => {
             const Icon = item.icon;
             const isActive = active === item.id;
             return (

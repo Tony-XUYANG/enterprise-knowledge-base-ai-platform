@@ -6,6 +6,39 @@ export interface User {
   emailVerifiedAt: string;
 }
 
+export type ManagedUserRole = 'admin' | 'member';
+export type ManagedUserStatus = 'active' | 'disabled';
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  displayName: string;
+  status: ManagedUserStatus;
+  role: ManagedUserRole;
+  emailVerifiedAt: string | null;
+  mfaEnabledAt: string | null;
+  lastLoginAt: string | null;
+  activeSessions: number;
+  current: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManagedUserList {
+  items: ManagedUser[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ManagedUserStats {
+  total: number;
+  active: number;
+  disabled: number;
+  admins: number;
+  pendingVerification: number;
+}
+
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
@@ -54,7 +87,9 @@ export type SecurityEventType =
   | 'mfa_recovery_codes_regenerated'
   | 'mfa_login_failed'
   | 'email_verification_requested'
-  | 'email_verified';
+  | 'email_verified'
+  | 'user_role_changed'
+  | 'user_status_changed';
 
 export interface SecurityEvent {
   id: string;

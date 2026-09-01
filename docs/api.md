@@ -30,6 +30,9 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | DELETE | `/api/v1/auth/sessions/:sessionId` | Bearer token | Revoke one owned active device session |
 | DELETE | `/api/v1/auth/sessions` | Bearer token | Revoke all active refresh sessions |
 | GET | `/api/v1/auth/security-events` | Bearer token | List recent owner-scoped security activity |
+| GET | `/api/v1/admin/users` | Admin bearer token | List and filter workspace members |
+| GET | `/api/v1/admin/users/stats` | Admin bearer token | Read member, status, role, and verification totals |
+| PATCH | `/api/v1/admin/users/:userId` | Admin bearer token | Change a member role or account status |
 | GET | `/api/v1/overview` | Bearer token | Read the owned resource summary, activity, and recent changes |
 | POST | `/api/v1/apps` | Bearer token | Create an AI app |
 | GET | `/api/v1/apps` | Bearer token | List the current user's apps |
@@ -125,7 +128,15 @@ Local development sends mail to Mailpit at `localhost:1025`; its UI is available
 
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
-The audit trail covers account registration and email verification, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, email-verification tokens, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login, email-verification resend, and password-reset requests are intentionally not persisted because no owner account exists for them.
+The audit trail covers account registration and email verification, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, administrator role and status changes, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, email-verification tokens, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login, email-verification resend, and password-reset requests are intentionally not persisted because no owner account exists for them.
+
+## Member administration
+
+The first active account in an empty workspace receives the `admin` role; migration `014_add_user_administration.sql` promotes the oldest active account when upgrading a workspace that has no active administrator. Later registrations receive `member`. Registration serializes this bootstrap decision with a PostgreSQL advisory transaction lock so concurrent first registrations cannot create multiple bootstrap administrators.
+
+Admin endpoints verify the current `user_roles` rows on every request instead of trusting only the role claim embedded in an older access token. `GET /api/v1/admin/users` accepts `page`, `pageSize`, `search`, optional `status=active|disabled`, optional `role=admin|member`, and `sort=created_desc|last_login_desc|name_asc`. Each item includes verification and MFA state, current active-session count, last login, and a `current` marker. `GET /stats` returns `total`, `active`, `disabled`, `admins`, and `pendingVerification`.
+
+`PATCH /api/v1/admin/users/:userId` accepts `role` and/or `status`. Administrators cannot change their own role or status, and the service preserves at least one active administrator under a serialized transaction. Every real role or status change revokes all target-device sessions immediately and records a target-scoped security event with the actor user/session identifiers. Repeating the current values is idempotent and does not manufacture audit events.
 
 ## List queries and relation counts
 

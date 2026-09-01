@@ -132,7 +132,8 @@ describe('authentication and AI app API', () => {
       password,
     });
     expect(ownerLogin.status).toBe(200);
-    expect(ownerLogin.body.data.user.roles).toEqual(['member']);
+    expect(ownerLogin.body.data.user.roles).toHaveLength(1);
+    expect(['admin', 'member']).toContain(ownerLogin.body.data.user.roles[0]);
     const ownerAccessToken: string = ownerLogin.body.data.accessToken;
     const originalRefreshToken: string = ownerLogin.body.data.refreshToken;
     const initialPasswordHistory = await pool.query<{ password_hash: string }>(

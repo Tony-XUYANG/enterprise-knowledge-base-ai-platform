@@ -257,17 +257,27 @@ export async function register(
       throw error;
     }
 
-    const roleResult = await client.query<{ id: number }>(
-      "SELECT id FROM roles WHERE code = 'member'",
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('knowledgehub_admin_role'))");
+    const roleResult = await client.query<{ id: number; code: string }>(
+      `SELECT id, code
+         FROM roles
+        WHERE code = CASE WHEN EXISTS (
+          SELECT 1
+            FROM user_roles ur
+            JOIN roles assigned_role ON assigned_role.id = ur.role_id
+            JOIN users assigned_user ON assigned_user.id = ur.user_id
+           WHERE assigned_role.code = 'admin'
+             AND assigned_user.status = 'active'
+        ) THEN 'member' ELSE 'admin' END`,
     );
-    const memberRole = roleResult.rows[0];
-    if (!memberRole) {
-      throw new AppError(500, 'MEMBER_ROLE_MISSING', '数据库缺少 member 角色');
+    const initialRole = roleResult.rows[0];
+    if (!initialRole) {
+      throw new AppError(500, 'INITIAL_ROLE_MISSING', '数据库缺少初始账号角色');
     }
 
     await client.query(
       'INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)',
-      [user.id, memberRole.id],
+      [user.id, initialRole.id],
     );
     await client.query(
       `INSERT INTO user_password_history (user_id, password_hash)

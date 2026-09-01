@@ -24,7 +24,9 @@ export type SecurityEventType =
   | 'mfa_recovery_codes_regenerated'
   | 'mfa_login_failed'
   | 'email_verification_requested'
-  | 'email_verified';
+  | 'email_verified'
+  | 'user_role_changed'
+  | 'user_status_changed';
 
 export type SecurityEventOutcome = 'success' | 'failure';
 

@@ -5,6 +5,7 @@ import { pinoHttp } from 'pino-http';
 import { env } from './config/env.js';
 import { query } from './db/pool.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { adminUsersRouter } from './modules/admin-users/admin-users.routes.js';
 import { appsRouter } from './modules/apps/apps.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { conversationsRouter } from './modules/conversations/conversations.routes.js';
@@ -47,6 +48,7 @@ export function createApp() {
   });
 
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/admin/users', adminUsersRouter);
   app.use('/api/v1/apps', appsRouter);
   app.use('/api/v1/knowledge-bases', knowledgeBasesRouter);
   app.use('/api/v1/conversations', conversationsRouter);
