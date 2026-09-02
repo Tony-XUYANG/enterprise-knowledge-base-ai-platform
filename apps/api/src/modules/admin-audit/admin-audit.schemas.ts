@@ -26,6 +26,7 @@ export const adminAuditEventTypeSchema = z.enum([
   'member_invitation_sent',
   'member_invitation_revoked',
   'member_invitation_accepted',
+  'admin_audit_exported',
 ]);
 
 export const adminAuditOutcomeSchema = z.enum(['success', 'failure']);
@@ -44,7 +45,13 @@ export const adminAuditStatsQuerySchema = z.object({
   range: adminAuditRangeSchema.default('30d'),
 });
 
+export const exportAdminAuditEventsQuerySchema = listAdminAuditEventsQuerySchema.omit({
+  page: true,
+  pageSize: true,
+});
+
 export type AdminAuditEventType = z.infer<typeof adminAuditEventTypeSchema>;
 export type AdminAuditOutcome = z.infer<typeof adminAuditOutcomeSchema>;
 export type AdminAuditRange = z.infer<typeof adminAuditRangeSchema>;
 export type ListAdminAuditEventsQuery = z.infer<typeof listAdminAuditEventsQuerySchema>;
+export type ExportAdminAuditEventsQuery = z.infer<typeof exportAdminAuditEventsQuerySchema>;

@@ -203,6 +203,24 @@ export async function proxyResponse(upstream: Response): Promise<NextResponse> {
   });
 }
 
+export async function proxyDownloadResponse(upstream: Response): Promise<NextResponse> {
+  const headers = new Headers();
+  for (const name of [
+    'Cache-Control',
+    'Content-Disposition',
+    'Content-Type',
+    'X-Export-Row-Count',
+    'X-Export-Truncated',
+  ]) {
+    const value = upstream.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new NextResponse(await upstream.arrayBuffer(), {
+    status: upstream.status,
+    headers,
+  });
+}
+
 export async function hasSessionCookie(): Promise<boolean> {
   return Boolean((await cookies()).get(accessCookieName)?.value);
 }

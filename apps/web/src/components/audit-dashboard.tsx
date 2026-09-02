@@ -6,9 +6,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
   Filter,
   LogIn,
   LogOut,
+  LoaderCircle,
   Mail,
   MapPin,
   MonitorSmartphone,
@@ -66,6 +68,7 @@ function formatDate(value: string) {
 
 function iconForEvent(event: AdminAuditEvent): LucideIcon {
   if (event.outcome === 'failure') return ShieldAlert;
+  if (event.eventType === 'admin_audit_exported') return Download;
   if (event.eventType === 'login_succeeded') return LogIn;
   if (
     event.eventType === 'logout'
@@ -110,7 +113,9 @@ export function AuditDashboard() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -119,6 +124,12 @@ export function AuditDashboard() {
     }, 300);
     return () => window.clearTimeout(timeout);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = window.setTimeout(() => setToast(''), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
 
   const handleApiError = useCallback((requestError: unknown) => {
     if (requestError instanceof ClientApiError && requestError.status === 401) {
@@ -168,6 +179,54 @@ export function AuditDashboard() {
     void loadAuditEvents();
   }, [loadAuditEvents]);
 
+  async function exportAuditEvents() {
+    setExporting(true);
+    setError('');
+    const parameters = new URLSearchParams({ range });
+    if (eventType !== 'all') parameters.set('eventType', eventType);
+    if (outcome !== 'all') parameters.set('outcome', outcome);
+    const exportSearch = searchInput.trim();
+    if (exportSearch) parameters.set('search', exportSearch);
+
+    try {
+      const response = await fetch(`/api/admin/audit-events/export?${parameters}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as {
+          error?: { code?: string; message?: string };
+        } | null;
+        throw new ClientApiError(
+          response.status,
+          payload?.error?.code ?? 'AUDIT_EXPORT_FAILED',
+          payload?.error?.message ?? '审计日志导出失败',
+        );
+      }
+
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const filename = disposition.match(/filename="([^"]+)"/u)?.[1]
+        ?? 'knowledgehub-audit.csv';
+      const rowCount = Number(response.headers.get('X-Export-Row-Count') ?? 0);
+      const truncated = response.headers.get('X-Export-Truncated') === 'true';
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setToast(
+        truncated
+          ? `已导出前 ${rowCount.toLocaleString('zh-CN')} 条，请缩小筛选范围获取其余记录`
+          : `已导出 ${rowCount.toLocaleString('zh-CN')} 条审计记录`,
+      );
+      await loadAuditEvents();
+    } catch (requestError) {
+      handleApiError(requestError);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
   const hasFilters = eventType !== 'all' || outcome !== 'all' || search.length > 0;
 
@@ -178,6 +237,15 @@ export function AuditDashboard() {
           <h1>审计日志</h1>
           <span>{data.total}</span>
         </div>
+        <button
+          className="secondaryButton"
+          type="button"
+          onClick={() => void exportAuditEvents()}
+          disabled={exporting}
+        >
+          {exporting ? <LoaderCircle className="spin" size={18} /> : <Download size={18} />}
+          {exporting ? '正在导出' : '导出 CSV'}
+        </button>
       </section>
 
       <WorkspaceStats
@@ -371,6 +439,7 @@ export function AuditDashboard() {
           </footer>
         )}
       </section>
+      {toast && <div className="toast" role="status">{toast}</div>}
     </WorkspaceShell>
   );
 }

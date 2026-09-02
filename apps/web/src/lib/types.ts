@@ -128,7 +128,8 @@ export type SecurityEventType =
   | 'user_status_changed'
   | 'member_invitation_sent'
   | 'member_invitation_revoked'
-  | 'member_invitation_accepted';
+  | 'member_invitation_accepted'
+  | 'admin_audit_exported';
 
 export interface SecurityEvent {
   id: string;

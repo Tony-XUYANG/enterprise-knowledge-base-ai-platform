@@ -4,6 +4,7 @@ import type {
   AdminAuditEventType,
   AdminAuditOutcome,
   AdminAuditRange,
+  ExportAdminAuditEventsQuery,
   ListAdminAuditEventsQuery,
 } from './admin-audit.schemas.js';
 
@@ -63,29 +64,44 @@ export interface AdminAuditStats {
   adminActions: number;
 }
 
+export interface AdminAuditExport {
+  contents: string;
+  filename: string;
+  rowCount: number;
+  truncated: boolean;
+}
+
+const auditExportLimit = 10_000;
+
 const safeMetadataKeys = new Set([
   'action',
   'actorUserId',
   'currentSession',
   'displayNameChanged',
+  'eventType',
   'expiresAt',
+  'exportedRows',
   'failedAttempts',
   'failedAttemptsCleared',
   'invitationId',
   'lockedUntil',
   'mfaMethod',
+  'outcome',
   'passwordHistoryLimit',
   'previousRole',
   'previousStatus',
   'reason',
   'recoveryCodeCount',
   'registrationMethod',
+  'range',
   'remainingAttempts',
   'retryAfterSeconds',
   'revokedSessions',
   'role',
   'status',
+  'searchApplied',
   'targetEmail',
+  'truncated',
   'verificationMethod',
 ]);
 
@@ -107,7 +123,7 @@ function rangeInterval(range: AdminAuditRange): string | null {
   }[range];
 }
 
-function auditFilters(input: ListAdminAuditEventsQuery) {
+function auditFilters(input: ExportAdminAuditEventsQuery) {
   const conditions: string[] = [];
   const values: unknown[] = [];
   const interval = rangeInterval(input.range);
@@ -142,6 +158,38 @@ function auditFilters(input: ListAdminAuditEventsQuery) {
     sql: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
     values,
   };
+}
+
+async function selectAuditEventRows(
+  input: ExportAdminAuditEventsQuery,
+  limit: number,
+  offset: number,
+): Promise<AdminAuditEventRow[]> {
+  const filter = auditFilters(input);
+  const result = await query<AdminAuditEventRow>(
+    `SELECT event.id, event.event_type, event.outcome,
+            subject.id AS subject_user_id,
+            subject.email AS subject_email,
+            subject.display_name AS subject_display_name,
+            COALESCE(session_actor.id, metadata_actor.id, subject.id) AS actor_user_id,
+            COALESCE(session_actor.email, metadata_actor.email, subject.email) AS actor_email,
+            COALESCE(
+              session_actor.display_name,
+              metadata_actor.display_name,
+              subject.display_name
+            ) AS actor_display_name,
+            event.actor_session_id, event.target_session_id, event.user_agent,
+            host(event.ip_address) AS ip_address, event.metadata, event.created_at
+       FROM security_events event
+       JOIN users subject ON subject.id = event.user_id
+       ${actorJoins}
+       ${filter.sql}
+      ORDER BY event.created_at DESC, event.id DESC
+      LIMIT $${filter.values.length + 1}
+     OFFSET $${filter.values.length + 2}`,
+    [...filter.values, limit, offset],
+  );
+  return result.rows;
 }
 
 function mapAuditEvent(row: AdminAuditEventRow): AdminAuditEvent {
@@ -179,29 +227,7 @@ export async function listAdminAuditEvents(
   const offset = (input.page - 1) * input.pageSize;
 
   const [eventsResult, countResult] = await Promise.all([
-    query<AdminAuditEventRow>(
-      `SELECT event.id, event.event_type, event.outcome,
-              subject.id AS subject_user_id,
-              subject.email AS subject_email,
-              subject.display_name AS subject_display_name,
-              COALESCE(session_actor.id, metadata_actor.id, subject.id) AS actor_user_id,
-              COALESCE(session_actor.email, metadata_actor.email, subject.email) AS actor_email,
-              COALESCE(
-                session_actor.display_name,
-                metadata_actor.display_name,
-                subject.display_name
-              ) AS actor_display_name,
-              event.actor_session_id, event.target_session_id, event.user_agent,
-              host(event.ip_address) AS ip_address, event.metadata, event.created_at
-         FROM security_events event
-         JOIN users subject ON subject.id = event.user_id
-         ${actorJoins}
-         ${filter.sql}
-        ORDER BY event.created_at DESC, event.id DESC
-        LIMIT $${filter.values.length + 1}
-       OFFSET $${filter.values.length + 2}`,
-      [...filter.values, input.pageSize, offset],
-    ),
+    selectAuditEventRows(input, input.pageSize, offset),
     query<{ total: string }>(
       `SELECT count(*)::text AS total
          FROM security_events event
@@ -213,7 +239,7 @@ export async function listAdminAuditEvents(
   ]);
 
   return {
-    items: eventsResult.rows.map(mapAuditEvent),
+    items: eventsResult.map(mapAuditEvent),
     page: input.page,
     pageSize: input.pageSize,
     total: Number(countResult.rows[0]?.total ?? 0),
@@ -239,7 +265,8 @@ export async function getAdminAuditStats(range: AdminAuditRange): Promise<AdminA
               'user_role_changed',
               'user_status_changed',
               'member_invitation_sent',
-              'member_invitation_revoked'
+              'member_invitation_revoked',
+              'admin_audit_exported'
             ))::text AS admin_actions
        FROM security_events
        ${where}`,
@@ -251,5 +278,57 @@ export async function getAdminAuditStats(range: AdminAuditRange): Promise<AdminA
     failures: Number(row.failures),
     affectedMembers: Number(row.affected_members),
     adminActions: Number(row.admin_actions),
+  };
+}
+
+function csvCell(value: string | number | null | undefined): string {
+  let text = value === null || value === undefined ? '' : String(value);
+  if (/^[=+\-@\t\r]/u.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function exportFilename(now: Date): string {
+  return `knowledgehub-audit-${now.toISOString().replace(/[-:]/gu, '').slice(0, 15)}Z.csv`;
+}
+
+export async function exportAdminAuditEvents(
+  input: ExportAdminAuditEventsQuery,
+): Promise<AdminAuditExport> {
+  const rows = await selectAuditEventRows(input, auditExportLimit + 1, 0);
+  const truncated = rows.length > auditExportLimit;
+  const events = rows.slice(0, auditExportLimit).map(mapAuditEvent);
+  const header = [
+    '发生时间',
+    '事件类型',
+    '执行结果',
+    '影响账号姓名',
+    '影响账号邮箱',
+    '操作人姓名',
+    '操作人邮箱',
+    '设备',
+    '来源 IP',
+    '目标邮箱',
+    '原因',
+  ];
+  const records = events.map((event) => [
+    event.createdAt,
+    event.eventType,
+    event.outcome,
+    event.subject.displayName,
+    event.subject.email,
+    event.actor.displayName,
+    event.actor.email,
+    event.deviceName,
+    event.ipAddress,
+    typeof event.metadata.targetEmail === 'string' ? event.metadata.targetEmail : null,
+    typeof event.metadata.reason === 'string' ? event.metadata.reason : null,
+  ]);
+  return {
+    contents: `\ufeff${[header, ...records]
+      .map((record) => record.map(csvCell).join(','))
+      .join('\r\n')}\r\n`,
+    filename: exportFilename(new Date()),
+    rowCount: events.length,
+    truncated,
   };
 }

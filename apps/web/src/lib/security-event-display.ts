@@ -26,6 +26,7 @@ export const securityEventTypeLabels: Record<SecurityEvent['eventType'], string>
   member_invitation_sent: '成员邀请发送',
   member_invitation_revoked: '成员邀请撤销',
   member_invitation_accepted: '成员接受邀请',
+  admin_audit_exported: '审计日志导出',
 };
 
 export function describeSecurityEvent(
@@ -108,5 +109,12 @@ export function describeSecurityEvent(
       return { title: '成员邀请已撤销', detail: '原邀请链接已立即失效' };
     case 'member_invitation_accepted':
       return { title: '已接受成员邀请', detail: '邮箱已确认，账号创建完成' };
+    case 'admin_audit_exported':
+      return {
+        title: '审计日志已导出',
+        detail: event.metadata.truncated
+          ? `已导出前 ${event.metadata.exportedRows ?? 0} 条匹配记录`
+          : `已导出 ${event.metadata.exportedRows ?? 0} 条匹配记录`,
+      };
   }
 }

@@ -22,7 +22,7 @@ async function createTestUser(email: string, role: TestRole) {
     [
       email,
       '$2b$12$nN55PR.IzlfSe7z6Pki2uup7PkPymPOUq8AQbKSy6jGiQyNl0RZQG',
-      role === 'admin' ? '审计测试管理员' : '审计测试成员',
+      role === 'admin' ? '审计测试管理员' : '=SUM(1+1)',
     ],
   );
   const userId = userResult.rows[0]!.id;
@@ -132,7 +132,7 @@ describe('admin audit API', () => {
       subject: {
         id: memberUserId,
         email: memberEmail,
-        displayName: '审计测试成员',
+        displayName: '=SUM(1+1)',
       },
       actor: {
         id: memberUserId,
@@ -167,6 +167,51 @@ describe('admin audit API', () => {
       subject: { id: adminUserId, email: adminEmail },
       actor: { id: adminUserId, email: adminEmail },
       metadata: { targetEmail: invitedEmail },
+    });
+
+    const memberExportForbidden = await request(app)
+      .get('/api/v1/admin/audit-events/export?range=24h')
+      .set('Authorization', `Bearer ${memberAccessToken}`);
+    expect(memberExportForbidden.status).toBe(403);
+
+    const exportResponse = await request(app)
+      .get(
+        `/api/v1/admin/audit-events/export?range=24h&search=${encodeURIComponent(memberEmail)}`,
+      )
+      .set('Authorization', `Bearer ${adminAccessToken}`);
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.headers['content-type']).toContain('text/csv');
+    expect(exportResponse.headers['content-disposition'])
+      .toMatch(/^attachment; filename="knowledgehub-audit-\d{8}T\d{6}Z\.csv"$/u);
+    expect(exportResponse.headers['x-export-row-count']).toBe('2');
+    expect(exportResponse.headers['x-export-truncated']).toBe('false');
+    expect(exportResponse.text.charCodeAt(0)).toBe(0xfeff);
+    expect(exportResponse.text).toContain('"发生时间","事件类型","执行结果"');
+    expect(exportResponse.text).toContain("\"'=SUM(1+1)\"");
+    expect(exportResponse.text).not.toContain('"=SUM(1+1)"');
+
+    const exportEventResult = await pool.query<{
+      event_type: string;
+      metadata: Record<string, unknown>;
+    }>(
+      `SELECT event_type, metadata
+         FROM security_events
+        WHERE user_id = $1
+          AND event_type = 'admin_audit_exported'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      [adminUserId],
+    );
+    expect(exportEventResult.rows[0]).toMatchObject({
+      event_type: 'admin_audit_exported',
+      metadata: {
+        range: '24h',
+        eventType: null,
+        outcome: null,
+        searchApplied: true,
+        exportedRows: 2,
+        truncated: false,
+      },
     });
 
     const statsResponse = await request(app)
