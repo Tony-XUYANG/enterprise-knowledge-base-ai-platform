@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   LogOut,
   MessagesSquare,
+  ScrollText,
   Settings,
   UsersRound,
 } from 'lucide-react';
@@ -17,7 +18,7 @@ import type { User } from '@/lib/types';
 import { Brand } from './brand';
 
 interface WorkspaceShellProps {
-  active: 'overview' | 'apps' | 'knowledge-bases' | 'conversations' | 'members' | 'settings';
+  active: 'overview' | 'apps' | 'knowledge-bases' | 'conversations' | 'members' | 'audit' | 'settings';
   title: string;
   children: ReactNode;
 }
@@ -42,6 +43,13 @@ const navigation = [
     href: '/members',
     label: '成员管理',
     icon: UsersRound,
+    adminOnly: true,
+  },
+  {
+    id: 'audit' as const,
+    href: '/audit',
+    label: '审计日志',
+    icon: ScrollText,
     adminOnly: true,
   },
   { id: 'settings' as const, href: '/settings', label: '账户设置', icon: Settings },

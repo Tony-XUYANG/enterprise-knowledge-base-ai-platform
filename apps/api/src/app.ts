@@ -5,6 +5,7 @@ import { pinoHttp } from 'pino-http';
 import { env } from './config/env.js';
 import { query } from './db/pool.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { adminAuditRouter } from './modules/admin-audit/admin-audit.routes.js';
 import { adminUsersRouter } from './modules/admin-users/admin-users.routes.js';
 import { appsRouter } from './modules/apps/apps.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -52,6 +53,7 @@ export function createApp() {
   });
 
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/admin/audit-events', adminAuditRouter);
   app.use('/api/v1/admin/users', adminUsersRouter);
   app.use('/api/v1/admin/invitations', adminInvitationsRouter);
   app.use('/api/v1/invitations', invitationsRouter);

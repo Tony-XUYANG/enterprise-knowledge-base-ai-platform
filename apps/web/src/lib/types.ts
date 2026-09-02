@@ -149,6 +149,33 @@ export interface SecurityEventList {
   total: number;
 }
 
+export type AdminAuditRange = '24h' | '7d' | '30d' | '90d' | 'all';
+
+export interface AuditUserSummary {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+export interface AdminAuditEvent extends SecurityEvent {
+  subject: AuditUserSummary;
+  actor: AuditUserSummary;
+}
+
+export interface AdminAuditEventList {
+  items: AdminAuditEvent[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface AdminAuditStats {
+  total: number;
+  failures: number;
+  affectedMembers: number;
+  adminActions: number;
+}
+
 export type AppStatus = 'draft' | 'active' | 'disabled';
 
 export interface AiApp {

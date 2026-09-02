@@ -33,6 +33,8 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/admin/users` | Admin bearer token | List and filter workspace members |
 | GET | `/api/v1/admin/users/stats` | Admin bearer token | Read member, status, role, and verification totals |
 | PATCH | `/api/v1/admin/users/:userId` | Admin bearer token | Change a member role or account status |
+| GET | `/api/v1/admin/audit-events` | Admin bearer token | Filter and page platform-wide security events |
+| GET | `/api/v1/admin/audit-events/stats` | Admin bearer token | Summarize audit activity for a time range |
 | GET | `/api/v1/admin/invitations` | Admin bearer token | List and filter member invitations |
 | POST | `/api/v1/admin/invitations` | Admin bearer token | Create and email a member invitation |
 | POST | `/api/v1/admin/invitations/:invitationId/resend` | Admin bearer token | Replace and resend an invitation link |
@@ -135,6 +137,12 @@ Local development sends mail to Mailpit at `localhost:1025`; its UI is available
 `GET /api/v1/auth/security-events?limit=20` returns the authenticated user's newest security events and the total retained count. `limit` defaults to 20 and accepts 1-50. Results include the event type, outcome, source device, observed API IP, actor and target session identifiers, safe metadata, and timestamp.
 
 The audit trail covers account registration and email verification, successful login, failed login for an existing account, account lock and automatic unlock, profile updates, password changes, password-reset requests and completions, MFA setup/enable/disable/recovery-code changes and failed challenges, administrator role and status changes, refresh-token reuse detection, single-session revocation, all-session revocation, and explicit logout. Events for state-changing operations are written in the same database transaction as the protected change. Passwords, email-verification tokens, MFA secrets and codes, reset tokens, refresh tokens, access tokens, API keys, and request bodies are never stored in event metadata. Unknown-email login, email-verification resend, and password-reset requests are intentionally not persisted because no owner account exists for them.
+
+## Administrator audit log
+
+`GET /api/v1/admin/audit-events` exposes the platform-wide security timeline only after live administrator authorization. It accepts `page`, `pageSize`, `range=24h|7d|30d|90d|all`, optional exact `eventType`, optional `outcome=success|failure`, and `search`. Search covers affected members, resolved operators, invitation target emails, and observed IP addresses. Results are ordered by `(created_at, id)` descending and identify both the affected account and the operator resolved from the actor session or recorded administrator ID.
+
+`GET /api/v1/admin/audit-events/stats` accepts the same `range` and returns total events, failed or blocked events, distinct affected members, and administrator actions. Migration `016_add_admin_audit_indexes.sql` adds global recent, event-type, and failed-event indexes without changing the append-only event payload. Audit responses contain only the existing allowlisted primitive metadata; passwords, access/refresh/invitation/reset/verification tokens, API keys, MFA secrets and codes, and request bodies are never recorded or returned.
 
 ## Member administration
 
