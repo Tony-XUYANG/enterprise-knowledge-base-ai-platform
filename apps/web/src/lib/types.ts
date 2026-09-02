@@ -39,6 +39,42 @@ export interface ManagedUserStats {
   pendingVerification: number;
 }
 
+export type MemberInvitationStatus = 'pending' | 'expired' | 'accepted' | 'revoked';
+
+export interface MemberInvitation {
+  id: string;
+  email: string;
+  role: ManagedUserRole;
+  status: MemberInvitationStatus;
+  inviterName: string | null;
+  expiresAt: string;
+  deliveredAt: string | null;
+  acceptedAt: string | null;
+  sendCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MemberInvitationList {
+  items: MemberInvitation[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface InvitationPreview {
+  email: string;
+  role: ManagedUserRole;
+  inviterName: string | null;
+  expiresAt: string;
+}
+
+export interface InvitationAcceptance {
+  email: string;
+  displayName: string;
+  role: ManagedUserRole;
+}
+
 export interface SessionSummary {
   activeSessions: number;
   lastLoginAt: string | null;
@@ -89,7 +125,10 @@ export type SecurityEventType =
   | 'email_verification_requested'
   | 'email_verified'
   | 'user_role_changed'
-  | 'user_status_changed';
+  | 'user_status_changed'
+  | 'member_invitation_sent'
+  | 'member_invitation_revoked'
+  | 'member_invitation_accepted';
 
 export interface SecurityEvent {
   id: string;

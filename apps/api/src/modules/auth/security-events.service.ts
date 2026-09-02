@@ -26,7 +26,10 @@ export type SecurityEventType =
   | 'email_verification_requested'
   | 'email_verified'
   | 'user_role_changed'
-  | 'user_status_changed';
+  | 'user_status_changed'
+  | 'member_invitation_sent'
+  | 'member_invitation_revoked'
+  | 'member_invitation_accepted';
 
 export type SecurityEventOutcome = 'success' | 'failure';
 

@@ -10,6 +10,10 @@ import { appsRouter } from './modules/apps/apps.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { conversationsRouter } from './modules/conversations/conversations.routes.js';
 import { knowledgeBasesRouter } from './modules/knowledge-bases/knowledge-bases.routes.js';
+import {
+  adminInvitationsRouter,
+  invitationsRouter,
+} from './modules/member-invitations/member-invitations.routes.js';
 import { overviewRouter } from './modules/overview/overview.routes.js';
 
 export function createApp() {
@@ -49,6 +53,8 @@ export function createApp() {
 
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/admin/users', adminUsersRouter);
+  app.use('/api/v1/admin/invitations', adminInvitationsRouter);
+  app.use('/api/v1/invitations', invitationsRouter);
   app.use('/api/v1/apps', appsRouter);
   app.use('/api/v1/knowledge-bases', knowledgeBasesRouter);
   app.use('/api/v1/conversations', conversationsRouter);

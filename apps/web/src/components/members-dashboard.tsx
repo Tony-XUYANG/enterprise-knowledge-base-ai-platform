@@ -8,7 +8,9 @@ import {
   CircleCheck,
   Clock3,
   KeyRound,
+  MailPlus,
   RefreshCw,
+  RotateCw,
   Search,
   ShieldCheck,
   UserCog,
@@ -20,12 +22,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { ClientApiError, clientApi } from '@/lib/client-api';
 import type {
   ManagedUser,
+  MemberInvitation,
+  MemberInvitationList,
   ManagedUserList,
   ManagedUserRole,
   ManagedUserStats,
   ManagedUserStatus,
 } from '@/lib/types';
 import { ConfirmDialog } from './confirm-dialog';
+import {
+  MemberInvitationDialog,
+  type InvitationFormInput,
+} from './member-invitation-dialog';
 import { WorkspaceShell } from './workspace-shell';
 import { WorkspaceStats } from './workspace-stats';
 
@@ -57,6 +65,12 @@ export function MembersDashboard() {
     admins: 0,
     pendingVerification: 0,
   });
+  const [invitations, setInvitations] = useState<MemberInvitationList>({
+    items: [],
+    page: 1,
+    pageSize: 20,
+    total: 0,
+  });
   const [status, setStatus] = useState<'all' | ManagedUserStatus>('all');
   const [role, setRole] = useState<'all' | ManagedUserRole>('all');
   const [sort, setSort] = useState<'created_desc' | 'last_login_desc' | 'name_asc'>('created_desc');
@@ -66,6 +80,9 @@ export function MembersDashboard() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [disablingUser, setDisablingUser] = useState<ManagedUser | null>(null);
+  const [revokingInvitation, setRevokingInvitation] = useState<MemberInvitation | null>(null);
+  const [invitationDialogOpen, setInvitationDialogOpen] = useState(false);
+  const [invitationActionId, setInvitationActionId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -109,12 +126,14 @@ export function MembersDashboard() {
     if (role !== 'all') parameters.set('role', role);
     if (search) parameters.set('search', search);
     try {
-      const [members, memberStats] = await Promise.all([
+      const [members, memberStats, pendingInvitations] = await Promise.all([
         clientApi<ManagedUserList>(`/api/admin/users?${parameters}`),
         clientApi<ManagedUserStats>('/api/admin/users/stats'),
+        clientApi<MemberInvitationList>('/api/admin/invitations?status=pending&pageSize=20'),
       ]);
       setData(members);
       setStats(memberStats);
+      setInvitations(pendingInvitations);
     } catch (requestError) {
       handleApiError(requestError);
     } finally {
@@ -150,6 +169,55 @@ export function MembersDashboard() {
     }
   }
 
+  async function inviteMember(input: InvitationFormInput) {
+    try {
+      await clientApi('/api/admin/invitations', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      setInvitationDialogOpen(false);
+      setToast(`邀请已发送至 ${input.email}`);
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      handleApiError(requestError);
+      throw requestError;
+    }
+  }
+
+  async function resendInvitation(invitation: MemberInvitation) {
+    setInvitationActionId(invitation.id);
+    setError('');
+    try {
+      await clientApi(`/api/admin/invitations/${invitation.id}/resend`, {
+        method: 'POST',
+      });
+      setToast(`新邀请已发送至 ${invitation.email}`);
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      handleApiError(requestError);
+    } finally {
+      setInvitationActionId(null);
+    }
+  }
+
+  async function revokeInvitation() {
+    if (!revokingInvitation) return;
+    setInvitationActionId(revokingInvitation.id);
+    try {
+      await clientApi<void>(`/api/admin/invitations/${revokingInvitation.id}`, {
+        method: 'DELETE',
+      });
+      setToast(`已撤销对 ${revokingInvitation.email} 的邀请`);
+      setRevokingInvitation(null);
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      handleApiError(requestError);
+      throw requestError;
+    } finally {
+      setInvitationActionId(null);
+    }
+  }
+
   return (
     <WorkspaceShell active="members" title="成员管理">
       <section className="workspaceHeader">
@@ -157,6 +225,10 @@ export function MembersDashboard() {
           <h1>成员管理</h1>
           <span>{data.total}</span>
         </div>
+        <button className="primaryButton" type="button" onClick={() => setInvitationDialogOpen(true)}>
+          <MailPlus size={18} />
+          邀请成员
+        </button>
       </section>
 
       <WorkspaceStats
@@ -168,6 +240,55 @@ export function MembersDashboard() {
           { label: '待验证邮箱', value: stats.pendingVerification, icon: Clock3, tone: 'warning' },
         ]}
       />
+
+      {invitations.total > 0 && (
+        <section className="pendingInvitations" aria-labelledby="pending-invitations-title">
+          <header>
+            <div>
+              <span className="pendingInvitationsIcon" aria-hidden="true"><MailPlus size={17} /></span>
+              <span>
+                <h2 id="pending-invitations-title">待接受邀请</h2>
+                <small>{invitations.total} 封邀请等待成员响应</small>
+              </span>
+            </div>
+          </header>
+          <div className="pendingInvitationList">
+            {invitations.items.map((invitation) => (
+              <article className="pendingInvitationRow" key={invitation.id}>
+                <span className="pendingInvitationEmail">
+                  <strong>{invitation.email}</strong>
+                  <small>
+                    {invitation.role === 'admin' ? '管理员' : '普通成员'} · 到期 {formatDate(invitation.expiresAt)}
+                  </small>
+                </span>
+                <span className="pendingInvitationSends">已发送 {invitation.sendCount} 次</span>
+                <div className="rowActions">
+                  <button
+                    className="iconButton"
+                    type="button"
+                    onClick={() => void resendInvitation(invitation)}
+                    disabled={invitationActionId === invitation.id}
+                    aria-label={`重新发送给 ${invitation.email}`}
+                    title="重新发送"
+                  >
+                    <RotateCw className={invitationActionId === invitation.id ? 'spin' : ''} size={16} />
+                  </button>
+                  <button
+                    className="iconButton dangerHover"
+                    type="button"
+                    onClick={() => setRevokingInvitation(invitation)}
+                    disabled={invitationActionId === invitation.id}
+                    aria-label={`撤销对 ${invitation.email} 的邀请`}
+                    title="撤销邀请"
+                  >
+                    <Ban size={16} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="toolbar memberToolbar" aria-label="成员筛选">
         <label className="searchBox">
@@ -383,6 +504,19 @@ export function MembersDashboard() {
         subjectLabel="账号"
         onClose={() => setDisablingUser(null)}
         onConfirm={() => updateMember(disablingUser!, { status: 'disabled' }).then(() => undefined)}
+      />
+      <ConfirmDialog
+        open={Boolean(revokingInvitation)}
+        appName={revokingInvitation?.email ?? ''}
+        subjectLabel="邀请"
+        variant="revoke"
+        onClose={() => setRevokingInvitation(null)}
+        onConfirm={revokeInvitation}
+      />
+      <MemberInvitationDialog
+        open={invitationDialogOpen}
+        onClose={() => setInvitationDialogOpen(false)}
+        onInvite={inviteMember}
       />
       {toast && <div className="toast" role="status">{toast}</div>}
     </WorkspaceShell>

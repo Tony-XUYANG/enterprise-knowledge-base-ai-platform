@@ -4168,6 +4168,177 @@ a {
   gap: 16px;
 }
 
+.pendingInvitations {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.pendingInvitations > header {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 14px;
+}
+
+.pendingInvitations > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.pendingInvitations > header h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.pendingInvitations > header small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.pendingInvitationsIcon {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.pendingInvitationList {
+  display: grid;
+}
+
+.pendingInvitationRow {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: minmax(220px, 1fr) 110px 76px;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #e9eeec;
+  padding: 8px 14px;
+}
+
+.pendingInvitationRow:last-child {
+  border-bottom: 0;
+}
+
+.pendingInvitationEmail {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.pendingInvitationEmail strong,
+.pendingInvitationEmail small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingInvitationEmail strong {
+  font-size: 13px;
+}
+
+.pendingInvitationEmail small,
+.pendingInvitationSends {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.pendingInvitationSends {
+  white-space: nowrap;
+}
+
+.invitationDialog {
+  width: min(500px, calc(100vw - 32px));
+}
+
+.invitationAcceptancePanel {
+  width: min(520px, 100%);
+}
+
+.invitationSummary {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  padding: 12px 14px;
+}
+
+.invitationSummary span,
+.invitationRoleSummary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.invitationSummary span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.invitationState {
+  display: grid;
+  min-height: 290px;
+  place-items: center;
+  align-content: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.invitationState h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.invitationState p {
+  max-width: 380px;
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.invitationState .secondaryButton {
+  margin-top: 8px;
+}
+
+.invitationState.success .primaryButton {
+  margin-top: 12px;
+}
+
+.invitationSuccessIcon {
+  display: inline-grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.invitationRoleSummary {
+  border-radius: 5px;
+  background: #edf0ef;
+  padding: 6px 9px;
+  color: var(--text);
+  font-weight: 650;
+}
+
 .memberTableHeader {
   min-height: 42px;
   border-bottom: 1px solid var(--border);
@@ -4379,6 +4550,28 @@ a {
     padding: 14px;
   }
 
+  .pendingInvitationRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 5px 10px;
+  }
+
+  .pendingInvitationEmail {
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+
+  .pendingInvitationSends {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+
+  .pendingInvitationRow > .rowActions {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
   .memberIdentity {
     grid-column: 1 / 3;
     grid-row: 1;
@@ -4406,6 +4599,20 @@ a {
     grid-row: 3;
     align-self: end;
     justify-self: end;
+  }
+}
+
+@media (max-width: 460px) {
+  .invitationAcceptancePage {
+    padding-top: 100px;
+  }
+
+  .invitationAcceptancePanel {
+    width: 100%;
+  }
+
+  .pendingInvitationRow {
+    padding-inline: 12px;
   }
 }
 

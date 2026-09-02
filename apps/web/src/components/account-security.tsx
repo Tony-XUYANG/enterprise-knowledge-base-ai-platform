@@ -352,6 +352,19 @@ export function AccountSecurity() {
             ? '管理员已停用账号并撤销全部设备会话'
             : '管理员已恢复账号登录权限',
         };
+      case 'member_invitation_sent':
+        return {
+          title: event.outcome === 'failure' ? '邀请邮件发送失败' : '成员邀请已发送',
+          detail: event.outcome === 'failure'
+            ? '邀请链接已自动失效，可以重新创建邀请'
+            : event.metadata.action === 'resent'
+              ? '已生成新链接并作废原邀请链接'
+              : '已向成员邮箱发送一次性邀请链接',
+        };
+      case 'member_invitation_revoked':
+        return { title: '成员邀请已撤销', detail: '原邀请链接已立即失效' };
+      case 'member_invitation_accepted':
+        return { title: '已接受成员邀请', detail: '邮箱已确认，账号创建完成' };
     }
   }
 
@@ -680,6 +693,7 @@ export function AccountSecurity() {
                             ? KeyRound
                             : event.eventType === 'password_reset_requested'
                               || event.eventType === 'email_verification_requested'
+                              || event.eventType === 'member_invitation_sent'
                               ? Mail
                               : event.eventType === 'account_registered'
                                 || event.eventType === 'email_verified'
@@ -689,6 +703,8 @@ export function AccountSecurity() {
                                 || event.eventType === 'mfa_recovery_codes_regenerated'
                                 || event.eventType === 'user_role_changed'
                                 || event.eventType === 'user_status_changed'
+                                || event.eventType === 'member_invitation_revoked'
+                                || event.eventType === 'member_invitation_accepted'
                                 ? ShieldCheck
                                 : LogOut;
                 return (

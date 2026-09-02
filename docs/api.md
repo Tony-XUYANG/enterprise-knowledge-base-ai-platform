@@ -33,6 +33,12 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/admin/users` | Admin bearer token | List and filter workspace members |
 | GET | `/api/v1/admin/users/stats` | Admin bearer token | Read member, status, role, and verification totals |
 | PATCH | `/api/v1/admin/users/:userId` | Admin bearer token | Change a member role or account status |
+| GET | `/api/v1/admin/invitations` | Admin bearer token | List and filter member invitations |
+| POST | `/api/v1/admin/invitations` | Admin bearer token | Create and email a member invitation |
+| POST | `/api/v1/admin/invitations/:invitationId/resend` | Admin bearer token | Replace and resend an invitation link |
+| DELETE | `/api/v1/admin/invitations/:invitationId` | Admin bearer token | Revoke an outstanding invitation |
+| POST | `/api/v1/invitations/inspect` | Invitation token in body | Read an active invitation summary |
+| POST | `/api/v1/invitations/accept` | Invitation token in body | Create an account from an invitation |
 | GET | `/api/v1/overview` | Bearer token | Read the owned resource summary, activity, and recent changes |
 | POST | `/api/v1/apps` | Bearer token | Create an AI app |
 | GET | `/api/v1/apps` | Bearer token | List the current user's apps |
@@ -137,6 +143,14 @@ The first active account in an empty workspace receives the `admin` role; migrat
 Admin endpoints verify the current `user_roles` rows on every request instead of trusting only the role claim embedded in an older access token. `GET /api/v1/admin/users` accepts `page`, `pageSize`, `search`, optional `status=active|disabled`, optional `role=admin|member`, and `sort=created_desc|last_login_desc|name_asc`. Each item includes verification and MFA state, current active-session count, last login, and a `current` marker. `GET /stats` returns `total`, `active`, `disabled`, `admins`, and `pendingVerification`.
 
 `PATCH /api/v1/admin/users/:userId` accepts `role` and/or `status`. Administrators cannot change their own role or status, and the service preserves at least one active administrator under a serialized transaction. Every real role or status change revokes all target-device sessions immediately and records a target-scoped security event with the actor user/session identifiers. Repeating the current values is idempotent and does not manufacture audit events.
+
+## Member invitations
+
+Administrators can invite an unregistered normalized email as `member` or `admin`. Each create or resend operation generates a new 48-byte random token and stores only its SHA-256 hash. The default 72-hour lifetime is configurable from 1-168 hours with `MEMBER_INVITATION_TTL_HOURS`. A new invitation for the same email atomically revokes older outstanding invitations, while resend replaces the current hash and expiry in place. The API response never includes the plaintext token.
+
+Invitation email is sent before `delivered_at` is recorded; public inspection and acceptance require that delivery marker. SMTP failures revoke the invite and return `INVITATION_DELIVERY_FAILED`, so a token from an uncertain delivery attempt cannot be used. Administrator invitation mutations are limited to 30 requests per 15 minutes. Creating an invitation for an existing account returns `USER_ALREADY_EXISTS`.
+
+The browser submits invitation tokens only in redacted JSON request bodies to `/inspect` and `/accept`; API URLs and logs do not contain them. Invitation creation, resend, acceptance, and ordinary registration serialize on the normalized email with a transaction-scoped advisory lock. Ordinary registration revokes outstanding invitations for that email. Acceptance then locks the invitation row, validates the normal identity-aware strong-password policy, creates an already email-verified account with the invited role and first password-history record, consumes the invitation, and records both registration and invitation-acceptance events in one transaction. It does not create a login session. Invalid, expired, revoked, consumed, and concurrent losing tokens all return the generic `INVITATION_INVALID` response.
 
 ## List queries and relation counts
 

@@ -11,6 +11,7 @@ Redis 与 MongoDB 将在出现明确的缓存、限流或大规模非结构化�
 erDiagram
     USERS ||--o{ USER_ROLES : has
     ROLES ||--o{ USER_ROLES : grants
+    USERS ||--o{ MEMBER_INVITATIONS : sends
     USERS ||--o{ AI_APPS : owns
     USERS ||--o{ KNOWLEDGE_BASES : owns
     KNOWLEDGE_BASES ||--o{ KNOWLEDGE_DOCUMENTS : contains
@@ -38,6 +39,8 @@ erDiagram
 - 用户与角色、应用与知识库均使用关联表表达多对多关系。
 - 空工作区的首个活跃账号获得 `admin` 角色，后续注册默认为 `member`；升级迁移会在缺少活跃管理员时提升最早的活跃账号。首账号判定和管理员变更使用 PostgreSQL 事务级咨询锁串行化，避免并发造成无管理员或重复引导管理员。
 - 管理员接口每次从 `user_roles` 实时检查权限，不只信任访问令牌中的旧角色声明。角色或账号状态变化会撤销目标账号全部设备会话并写入安全事件；禁止修改自己的角色/状态，并始终保留至少一位启用中的管理员。
+- `member_invitations` 保存规范化邮箱、目标角色、邀请人、发送/接受/撤销时间与一次性令牌的 SHA-256 哈希。邀请创建、重发、接受和普通注册使用同一规范化邮箱的事务级咨询锁；普通注册会撤销该邮箱的未完成邀请。新邀请和重发会作废旧令牌；接受时继续锁定邀请行、验证强密码并在一个事务内创建已验证账号、角色和密码历史，因此并发接受只有一个请求成功。
+- 邀请邮件发送成功前链接不能被接受；SMTP 失败会将对应邀请立即撤销。邀请明文只进入邮件链接和接受请求正文，不写入数据库、API 响应或应用日志。
 - `app_knowledge_bases.owner_id` 配合复合外键，保证应用不能绑定其他所有者的知识库。
 - `knowledge_documents` 通过 `(knowledge_base_id, owner_id)` 复合外键继承知识库所有权，并记录来源、解析状态、分块数和 FastGPT Collection ID。
 - `knowledge_document_chunks` 保存有序正文和检索元数据；复合外键继续传递所有权，唯一位置约束保证文档内顺序，触发器自动同步文档分块数。

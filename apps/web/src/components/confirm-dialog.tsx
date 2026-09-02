@@ -1,13 +1,13 @@
 'use client';
 
-import { Archive, Ban, LoaderCircle, Replace, Trash2, X } from 'lucide-react';
+import { Archive, Ban, LoaderCircle, Replace, Trash2, Undo2, X } from 'lucide-react';
 import { useState } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
   appName: string;
   subjectLabel?: string;
-  variant?: 'disable' | 'archive' | 'delete' | 'replace';
+  variant?: 'disable' | 'archive' | 'delete' | 'replace' | 'revoke';
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }
@@ -27,8 +27,9 @@ export function ConfirmDialog({
   const isArchive = variant === 'archive';
   const isDelete = variant === 'delete';
   const isReplace = variant === 'replace';
-  const ActionIcon = isDelete ? Trash2 : isArchive ? Archive : isReplace ? Replace : Ban;
-  const actionLabel = isDelete ? '删除' : isArchive ? '归档' : isReplace ? '覆盖' : '停用';
+  const isRevoke = variant === 'revoke';
+  const ActionIcon = isDelete ? Trash2 : isArchive ? Archive : isReplace ? Replace : isRevoke ? Undo2 : Ban;
+  const actionLabel = isDelete ? '删除' : isArchive ? '归档' : isReplace ? '覆盖' : isRevoke ? '撤销' : '停用';
 
   async function confirm() {
     setSubmitting(true);
@@ -57,7 +58,9 @@ export function ConfirmDialog({
               ? `覆盖后，${subjectLabel}的现有分块将被新内容替换。`
               : isDelete
               ? `删除后${subjectLabel}无法恢复。`
-              : `${actionLabel}后${subjectLabel}将保留数据，可以稍后重新启用。`}
+              : isRevoke
+                ? `撤销后${subjectLabel}链接会立即失效，成员将无法再使用该链接创建账号。`
+                : `${actionLabel}后${subjectLabel}将保留数据，可以稍后重新启用。`}
           </p>
         </div>
         <footer className="dialogActions">

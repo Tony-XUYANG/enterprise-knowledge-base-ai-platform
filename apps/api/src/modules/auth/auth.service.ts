@@ -240,6 +240,7 @@ export async function register(
   const passwordHash = await hashPassword(input.password);
 
   return withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [input.email]);
     let user: UserRow;
 
     try {
@@ -256,6 +257,15 @@ export async function register(
       }
       throw error;
     }
+
+    await client.query(
+      `UPDATE member_invitations
+          SET revoked_at = CURRENT_TIMESTAMP
+        WHERE email = $1
+          AND accepted_at IS NULL
+          AND revoked_at IS NULL`,
+      [input.email],
+    );
 
     await client.query("SELECT pg_advisory_xact_lock(hashtext('knowledgehub_admin_role'))");
     const roleResult = await client.query<{ id: number; code: string }>(
