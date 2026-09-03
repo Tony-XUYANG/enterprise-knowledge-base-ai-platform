@@ -2,7 +2,7 @@ import { AppError } from '../../errors/app-error.js';
 
 export const maxImportedChunkCount = 2000;
 
-function normalizeText(content: string): string {
+export function normalizeDocumentText(content: string): string {
   return content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
 }
 
@@ -39,7 +39,7 @@ export function splitDocumentText(
   chunkSize: number,
   chunkOverlap: number,
 ): string[] {
-  const normalized = normalizeText(content);
+  const normalized = normalizeDocumentText(content);
   if (!normalized) return [];
 
   const chunks: string[] = [];

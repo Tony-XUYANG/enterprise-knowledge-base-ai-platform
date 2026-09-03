@@ -10,6 +10,7 @@ import {
   CircleCheck,
   CirclePlus,
   FileText,
+  FileUp,
   Globe2,
   LoaderCircle,
   Pencil,
@@ -22,6 +23,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { ClientApiError, clientApi } from '@/lib/client-api';
 import type {
+  BatchDocumentContentImportResult,
   KnowledgeBase,
   KnowledgeDocument,
   KnowledgeDocumentList,
@@ -31,6 +33,7 @@ import type {
 } from '@/lib/types';
 import { ConfirmDialog } from './confirm-dialog';
 import { KnowledgeBaseSearchDialog } from './knowledge-base-search-dialog';
+import { KnowledgeDocumentsImportDialog } from './knowledge-documents-import-dialog';
 import { KnowledgeDocumentChunksDialog } from './knowledge-document-chunks-dialog';
 import {
   KnowledgeDocumentDialog,
@@ -123,6 +126,7 @@ export function KnowledgeBaseDocumentsDashboard({
   const [disablingDocument, setDisablingDocument] = useState<KnowledgeDocument | null>(null);
   const [chunkDocument, setChunkDocument] = useState<KnowledgeDocument | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [batchImportOpen, setBatchImportOpen] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -239,6 +243,16 @@ export function KnowledgeBaseDocumentsDashboard({
     }
   }
 
+  function finishBatchImport(result: BatchDocumentContentImportResult) {
+    setBatchImportOpen(false);
+    setPage(1);
+    setStatus('all');
+    setSearchInput('');
+    setSearch('');
+    setToast(`已导入 ${result.totalFiles} 个文件，共 ${result.totalChunks} 个分块`);
+    setReloadKey((key) => key + 1);
+  }
+
   return (
     <WorkspaceShell active="knowledge-bases" title="知识库文档">
       <section className="workspaceHeader">
@@ -256,6 +270,10 @@ export function KnowledgeBaseDocumentsDashboard({
           <button className="secondaryButton" type="button" onClick={() => setSearchDialogOpen(true)} disabled={!knowledgeBase || stats.chunks === 0}>
             <Search size={18} />
             检索测试
+          </button>
+          <button className="secondaryButton" type="button" onClick={() => setBatchImportOpen(true)} disabled={!knowledgeBase || knowledgeBase.status === 'disabled'}>
+            <FileUp size={18} />
+            批量导入
           </button>
           <button className="primaryButton" type="button" onClick={openCreateDialog} disabled={!knowledgeBase || knowledgeBase.status === 'disabled'}>
             <CirclePlus size={18} />
@@ -378,6 +396,13 @@ export function KnowledgeBaseDocumentsDashboard({
         knowledgeBaseId={knowledgeBaseId}
         knowledgeBaseName={knowledgeBase?.name ?? '知识库'}
         onClose={() => setSearchDialogOpen(false)}
+      />
+      <KnowledgeDocumentsImportDialog
+        open={batchImportOpen}
+        knowledgeBaseId={knowledgeBaseId}
+        knowledgeBaseName={knowledgeBase?.name ?? '知识库'}
+        onClose={() => setBatchImportOpen(false)}
+        onImported={finishBatchImport}
       />
       <ConfirmDialog open={Boolean(disablingDocument)} appName={disablingDocument?.name ?? ''} subjectLabel="文档" onClose={() => setDisablingDocument(null)} onConfirm={disableSelectedDocument} />
       {toast && <div className="toast" role="status">{toast}</div>}

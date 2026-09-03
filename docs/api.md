@@ -58,6 +58,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/knowledge-bases/:id/apps` | Bearer token | List apps attached to a knowledge base |
 | POST | `/api/v1/knowledge-bases/:id/search` | Bearer token | Rank matching chunks across ready documents |
 | POST | `/api/v1/knowledge-bases/:id/documents` | Bearer token | Add a document record |
+| POST | `/api/v1/knowledge-bases/:id/documents/import` | Bearer token | Atomically import multiple text files and chunks |
 | GET | `/api/v1/knowledge-bases/:id/documents` | Bearer token | List and filter document records |
 | GET | `/api/v1/knowledge-bases/:id/documents/stats` | Bearer token | Read document and chunk totals |
 | PATCH | `/api/v1/knowledge-bases/:id/documents/:documentId` | Bearer token | Update document source or processing state |
@@ -89,7 +90,7 @@ Refresh-token rotation updates the existing session row with a new token hash in
 
 Each successful rotation stores only the previous token's SHA-256 hash until that token's original expiry. Replaying a retained token returns `REFRESH_TOKEN_REUSED`, revokes the session's newest refresh token in the same transaction, and immediately invalidates access tokens issued for that device. The first active-session detection also records a `refresh_token_reused` security event; repeated attempts cannot create unbounded duplicate events after the session is already revoked. Random, expired, and otherwise unknown tokens continue to return `INVALID_REFRESH_TOKEN`.
 
-Every bearer-authenticated request validates the access token's session ID against the database. The session must belong to the token subject, remain unrevoked and unexpired, and belong to an active user. Logout, password changes, single-device revocation, and all-device revocation therefore invalidate existing access tokens immediately instead of waiting for their JWT expiry. Revoked sessions return `SESSION_REVOKED`; access tokens without a session claim return `INVALID_ACCESS_TOKEN`.
+Every bearer-authenticated request validates the access token's session ID against the database. The session must belong to the token subject, remain unrevoked and unexpired, and belong to an active user. Logout, password changes, single-device revocation, and all-device revocation therefore invalidate existing access tokens immediately instead of waiting for their JWT expiry. Revoked sessions return `SESSION_REVOKED`; access tokens without a session claim return `INVALID_ACCESS_TOKEN`. When the short-lived access-token cookie expires, the Web BFF can recover the session from the remaining refresh-token cookie, rotate it, and retry the original request without forcing another login.
 
 Authenticated requests also advance `last_used_at`, with writes limited to at most once per minute per session. This keeps the device list useful without writing the refresh-token row on every API call. The validation adds one indexed database lookup to protected requests, which is an intentional consistency tradeoff for immediate revocation.
 
@@ -200,6 +201,8 @@ Chunks store ordered searchable content, optional token counts, and FastGPT Data
 Text content can be previewed and imported with the same deterministic paragraph-, line-, and sentence-aware chunker. Import requests accept 1-750,000 characters, a `chunkSize` from 200-4,000, a `chunkOverlap` from 0-1,000 that must remain smaller than the chunk size, and one of the supported text MIME types. Imports that would create more than 2,000 chunks are rejected.
 
 `PUT .../content` locks the owned document and replaces all old chunks in one transaction. It computes byte size and SHA-256 on the server, marks the document as `ready`, clears its previous processing error, and returns both the updated document and the same chunk summary used by preview. A rejected or failed import leaves the previous chunks unchanged.
+
+`POST .../documents/import` accepts 1-10 TXT, Markdown, CSV, JSON, or HTML text payloads with shared chunk settings. Each file remains limited to 750,000 characters, the combined UTF-8 content is limited to 3 MB, and the batch may produce at most 5,000 chunks. The API creates every document, SHA-256 checksum, and ordered chunk set in one transaction; duplicate names, ownership failures, or database errors roll back the entire batch. The response reports imported files, total chunks, and total bytes.
 
 ```json
 {

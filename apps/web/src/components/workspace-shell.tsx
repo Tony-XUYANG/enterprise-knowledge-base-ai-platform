@@ -4,6 +4,7 @@ import {
   BookOpenText,
   LayoutDashboard,
   LayoutGrid,
+  LoaderCircle,
   LogOut,
   MessagesSquare,
   ScrollText,
@@ -59,6 +60,7 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [sessionError, setSessionError] = useState('');
+  const [sessionReady, setSessionReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -69,7 +71,10 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
     window.addEventListener('knowledgehub:user-updated', handleUserUpdated);
     clientApi<User>('/api/auth/session')
       .then((currentUser) => {
-        if (mounted) setUser(currentUser);
+        if (mounted) {
+          setUser(currentUser);
+          setSessionReady(true);
+        }
       })
       .catch((error: unknown) => {
         if (error instanceof ClientApiError && error.status === 401) {
@@ -77,7 +82,10 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
           router.refresh();
           return;
         }
-        if (mounted) setSessionError('会话加载失败');
+        if (mounted) {
+          setSessionError('会话加载失败');
+          setSessionReady(true);
+        }
       });
     return () => {
       mounted = false;
@@ -149,7 +157,12 @@ export function WorkspaceShell({ active, title, children }: WorkspaceShellProps)
             </button>
           </span>
         </header>
-        {children}
+        {sessionReady ? children : (
+          <div className="workspaceSessionLoading" role="status">
+            <LoaderCircle className="spin" size={20} />
+            正在恢复工作台
+          </div>
+        )}
       </main>
     </div>
   );

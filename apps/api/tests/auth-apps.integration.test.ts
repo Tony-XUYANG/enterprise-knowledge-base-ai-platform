@@ -1216,6 +1216,137 @@ describe('authentication and AI app API', () => {
     expect(searchAfterDocumentDisable.body.data.searchedChunks).toBe(0);
     expect(searchAfterDocumentDisable.body.data.items).toEqual([]);
 
+    const crossUserBatchImport = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`)
+      .send({
+        files: [{
+          name: '越权文件.txt',
+          content: '该文件不应写入其他用户的知识库。',
+          mimeType: 'text/plain',
+        }],
+      });
+    expect(crossUserBatchImport.status).toBe(404);
+    expect(crossUserBatchImport.body.error.code).toBe('KNOWLEDGE_BASE_NOT_FOUND');
+
+    const duplicateBatchNames = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        files: [
+          { name: '批次重复.txt', content: '第一份内容', mimeType: 'text/plain' },
+          { name: '批次重复.TXT', content: '第二份内容', mimeType: 'text/plain' },
+        ],
+      });
+    expect(duplicateBatchNames.status).toBe(400);
+    expect(duplicateBatchNames.body.error.code).toBe('VALIDATION_ERROR');
+
+    const tooManyBatchFiles = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        files: Array.from({ length: 11 }, (_, index) => ({
+          name: `超量-${index}.txt`,
+          content: `第 ${index} 份文件`,
+          mimeType: 'text/plain',
+        })),
+      });
+    expect(tooManyBatchFiles.status).toBe(400);
+    expect(tooManyBatchFiles.body.error.code).toBe('VALIDATION_ERROR');
+
+    const excessiveBatchChunks = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        files: Array.from({ length: 4 }, (_, index) => ({
+          name: `分块超量-${index}.txt`,
+          content: 'x'.repeat(1600),
+          mimeType: 'text/plain',
+        })),
+        chunkSize: 200,
+        chunkOverlap: 199,
+      });
+    expect(excessiveBatchChunks.status).toBe(400);
+    expect(excessiveBatchChunks.body.error.code)
+      .toBe('DOCUMENT_BATCH_CHUNK_LIMIT_EXCEEDED');
+
+    const atomicBatchConflict = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({
+        files: [
+          { name: '批次应回滚.txt', content: '该记录必须随事务回滚。', mimeType: 'text/plain' },
+          { name: '退款政策.md', content: '与现有文档重名。', mimeType: 'text/markdown' },
+        ],
+        chunkSize: 200,
+        chunkOverlap: 20,
+      });
+    expect(atomicBatchConflict.status).toBe(409);
+    expect(atomicBatchConflict.body.error.code).toBe('DOCUMENT_NAME_ALREADY_EXISTS');
+    const rolledBackBatchDocument = await pool.query<{ total: string }>(
+      `SELECT count(*)::text AS total
+         FROM knowledge_documents
+        WHERE knowledge_base_id = $1 AND name = '批次应回滚.txt'`,
+      [knowledgeBaseId],
+    );
+    expect(Number(rolledBackBatchDocument.rows[0]!.total)).toBe(0);
+
+    const batchFiles = [
+      {
+        name: '安装指南.md',
+        content: '# 安装指南\n\n管理员完成环境检查后，可以按步骤部署服务。',
+        mimeType: 'text/markdown',
+      },
+      {
+        name: '服务窗口.txt',
+        content: '工作日服务时间为 09:00 至 18:00，紧急问题由值班人员处理。',
+        mimeType: 'text/plain',
+      },
+    ];
+    const batchImportResponse = await request(app)
+      .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/import`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`)
+      .send({ files: batchFiles, chunkSize: 200, chunkOverlap: 20 });
+    expect(batchImportResponse.status).toBe(201);
+    expect(batchImportResponse.body.data).toMatchObject({
+      totalFiles: 2,
+      totalChunks: 2,
+      totalBytes: batchFiles.reduce(
+        (total, file) => total + Buffer.byteLength(file.content, 'utf8'),
+        0,
+      ),
+    });
+    expect(batchImportResponse.body.data.items).toHaveLength(2);
+    expect(batchImportResponse.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: '安装指南.md',
+        sourceType: 'file',
+        mimeType: 'text/markdown',
+        status: 'ready',
+        chunkCount: 1,
+        checksumSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
+      expect.objectContaining({
+        name: '服务窗口.txt',
+        sourceType: 'file',
+        mimeType: 'text/plain',
+        status: 'ready',
+        chunkCount: 1,
+      }),
+    ]));
+    const batchChunkMetadata = await pool.query<{ source: string; total: string }>(
+      `SELECT chunk.metadata->>'source' AS source, count(*)::text AS total
+         FROM knowledge_document_chunks chunk
+         JOIN knowledge_documents document ON document.id = chunk.document_id
+        WHERE document.knowledge_base_id = $1
+          AND document.name = ANY($2::varchar[])
+        GROUP BY chunk.metadata->>'source'`,
+      [knowledgeBaseId, batchFiles.map((file) => file.name)],
+    );
+    expect(batchChunkMetadata.rows).toEqual([
+      { source: 'batch_content_import', total: '2' },
+    ]);
+
     const searchKnowledgeBaseResponse = await request(app)
       .get('/api/v1/knowledge-bases?search=产品&page=1&pageSize=10&sort=name_asc')
       .set('Authorization', `Bearer ${ownerAccessToken}`);

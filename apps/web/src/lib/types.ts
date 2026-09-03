@@ -304,6 +304,13 @@ export interface DocumentContentImportResult {
   summary: DocumentContentSummary;
 }
 
+export interface BatchDocumentContentImportResult {
+  items: KnowledgeDocument[];
+  totalFiles: number;
+  totalChunks: number;
+  totalBytes: number;
+}
+
 export interface KnowledgeBaseList {
   items: KnowledgeBase[];
   page: number;

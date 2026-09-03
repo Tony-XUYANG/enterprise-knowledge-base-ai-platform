@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type {
@@ -10,6 +11,14 @@ const apiBaseUrl = process.env.API_BASE_URL ?? 'http://localhost:3001';
 const accessCookieName = 'kh_access_token';
 const refreshCookieName = 'kh_refresh_token';
 const secureCookies = process.env.NODE_ENV === 'production';
+// Let late parallel route handlers reuse the same rotation result without replaying the old token.
+const refreshFlightRetentionMs = 2_000;
+
+interface RefreshFlightResult {
+  session: AuthResult | null;
+}
+
+const refreshFlights = new Map<string, Promise<RefreshFlightResult>>();
 
 function jsonError(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status });
@@ -151,42 +160,65 @@ async function backendFetch(path: string, accessToken: string, init?: RequestIni
   });
 }
 
+function refreshSession(refreshToken: string): Promise<RefreshFlightResult> {
+  const tokenKey = createHash('sha256').update(refreshToken).digest('hex');
+  const existingFlight = refreshFlights.get(tokenKey);
+  if (existingFlight) return existingFlight;
+
+  const flight = (async () => {
+    const response = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      cache: 'no-store',
+    });
+    if (!response.ok) return { session: null };
+    const payload = (await response.json()) as { data: AuthResult };
+    return { session: payload.data };
+  })();
+  refreshFlights.set(tokenKey, flight);
+
+  const clearFlight = () => {
+    setTimeout(() => {
+      if (refreshFlights.get(tokenKey) === flight) refreshFlights.delete(tokenKey);
+    }, refreshFlightRetentionMs);
+  };
+  void flight.then(clearFlight, clearFlight);
+  return flight;
+}
+
 export async function authenticatedApiFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(accessCookieName)?.value;
+  const refreshToken = cookieStore.get(refreshCookieName)?.value;
 
-  if (!accessToken) {
+  if (!accessToken && !refreshToken) {
     return jsonError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
   }
 
   try {
-    let upstream = await backendFetch(path, accessToken, init);
-    if (upstream.status !== 401) return upstream;
-
-    const refreshToken = cookieStore.get(refreshCookieName)?.value;
-    if (!refreshToken) {
-      await clearSessionCookies();
-      return upstream;
+    let upstream: Response | undefined;
+    if (accessToken) {
+      upstream = await backendFetch(path, accessToken, init);
+      if (upstream.status !== 401) return upstream;
     }
 
-    const refreshResponse = await fetch(`${apiBaseUrl}/api/v1/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-      cache: 'no-store',
-    });
+    if (!refreshToken) {
+      await clearSessionCookies();
+      return upstream ?? jsonError(401, 'AUTHENTICATION_REQUIRED', '请先登录');
+    }
 
-    if (!refreshResponse.ok) {
+    const refreshResult = await refreshSession(refreshToken);
+    if (!refreshResult.session) {
       await clearSessionCookies();
       return jsonError(401, 'SESSION_EXPIRED', '登录状态已过期，请重新登录');
     }
 
-    const payload = (await refreshResponse.json()) as { data: AuthResult };
-    await setSessionCookies(payload.data);
-    upstream = await backendFetch(path, payload.data.accessToken, init);
+    await setSessionCookies(refreshResult.session);
+    upstream = await backendFetch(path, refreshResult.session.accessToken, init);
     return upstream;
   } catch {
     return jsonError(502, 'API_UNAVAILABLE', '服务暂时不可用，请稍后重试');
@@ -222,7 +254,11 @@ export async function proxyDownloadResponse(upstream: Response): Promise<NextRes
 }
 
 export async function hasSessionCookie(): Promise<boolean> {
-  return Boolean((await cookies()).get(accessCookieName)?.value);
+  const cookieStore = await cookies();
+  return Boolean(
+    cookieStore.get(accessCookieName)?.value
+    || cookieStore.get(refreshCookieName)?.value,
+  );
 }
 
 export async function logoutSession(request?: Request): Promise<NextResponse> {
