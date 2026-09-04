@@ -997,6 +997,36 @@ describe('authentication and AI app API', () => {
     expect(updateKnowledgeBaseResponse.status).toBe(200);
     expect(updateKnowledgeBaseResponse.body.data.status).toBe('ready');
 
+    const emptyKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(emptyKnowledgeBaseInsights.status).toBe(200);
+    expect(emptyKnowledgeBaseInsights.body.data).toMatchObject({
+      summary: {
+        totalDocuments: 0,
+        activeDocuments: 0,
+        readinessRate: 0,
+        contentCoverageRate: 0,
+        syncCoverageRate: 0,
+        totalChunks: 0,
+        issueDocuments: 0,
+      },
+      chunkQuality: {
+        totalChunks: 0,
+        tokenCoverageRate: 0,
+      },
+      statuses: [],
+      sources: [],
+      issues: [],
+    });
+
+    const crossUserKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(crossUserKnowledgeBaseInsights.status).toBe(404);
+    expect(crossUserKnowledgeBaseInsights.body.error.code)
+      .toBe('KNOWLEDGE_BASE_NOT_FOUND');
+
     const createDocumentResponse = await request(app)
       .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents`)
       .set('Authorization', `Bearer ${ownerAccessToken}`)
@@ -1038,6 +1068,32 @@ describe('authentication and AI app API', () => {
     expect(crossUserDocumentList.status).toBe(404);
     expect(crossUserDocumentList.body.error.code).toBe('KNOWLEDGE_BASE_NOT_FOUND');
 
+    const stalledDocumentResult = await pool.query<{ id: string }>(
+      `INSERT INTO knowledge_documents (
+         knowledge_base_id, owner_id, name, source_type,
+         fastgpt_collection_id, status, updated_at
+       )
+       SELECT id, owner_id, '处理超时.txt', 'file',
+              'collection-stalled-test', 'processing',
+              CURRENT_TIMESTAMP - INTERVAL '25 hours'
+         FROM knowledge_bases
+        WHERE id = $1
+      RETURNING id`,
+      [knowledgeBaseId],
+    );
+    const stalledDocumentId = stalledDocumentResult.rows[0]!.id;
+    const stalledKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(stalledKnowledgeBaseInsights.status).toBe(200);
+    expect(stalledKnowledgeBaseInsights.body.data.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        documentId: stalledDocumentId,
+        reasons: ['stalled'],
+      }),
+    ]));
+    await pool.query('DELETE FROM knowledge_documents WHERE id = $1', [stalledDocumentId]);
+
     const updateDocumentResponse = await request(app)
       .patch(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`)
       .set('Authorization', `Bearer ${ownerAccessToken}`)
@@ -1051,6 +1107,17 @@ describe('authentication and AI app API', () => {
       chunkCount: 0,
       fastgptCollectionId: 'collection-refund-policy',
     });
+
+    const emptyDocumentInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(emptyDocumentInsights.status).toBe(200);
+    expect(emptyDocumentInsights.body.data.issues).toEqual([
+      expect.objectContaining({
+        documentId,
+        reasons: ['empty'],
+      }),
+    ]);
 
     const firstChunkResponse = await request(app)
       .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks`)
@@ -1120,6 +1187,42 @@ describe('authentication and AI app API', () => {
       totalBytes: 4096,
     });
 
+    const populatedKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(populatedKnowledgeBaseInsights.status).toBe(200);
+    expect(populatedKnowledgeBaseInsights.body.data).toMatchObject({
+      summary: {
+        totalDocuments: 1,
+        activeDocuments: 1,
+        readyDocuments: 1,
+        contentDocuments: 1,
+        syncedDocuments: 1,
+        issueDocuments: 0,
+        readinessRate: 100,
+        contentCoverageRate: 100,
+        syncCoverageRate: 100,
+        totalChunks: 2,
+        totalBytes: 4096,
+        averageChunksPerDocument: 2,
+      },
+      chunkQuality: {
+        totalChunks: 2,
+        tokenizedChunks: 1,
+        tokenCoverageRate: 50,
+        averageTokens: 20,
+      },
+      statuses: [{ status: 'ready', documents: 1 }],
+      sources: [{
+        sourceType: 'url',
+        documents: 1,
+        readyDocuments: 1,
+        chunks: 2,
+        totalBytes: 4096,
+      }],
+      issues: [],
+    });
+
     const deleteFirstChunkResponse = await request(app)
       .delete(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks/${firstChunkId}`)
       .set('Authorization', `Bearer ${ownerAccessToken}`);
@@ -1145,6 +1248,26 @@ describe('authentication and AI app API', () => {
       .set('Authorization', `Bearer ${ownerAccessToken}`)
       .send({ status: 'failed', errorMessage: '旧的解析错误' });
     expect(markDocumentFailed.status).toBe(200);
+
+    const failedKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(failedKnowledgeBaseInsights.status).toBe(200);
+    expect(failedKnowledgeBaseInsights.body.data.summary).toMatchObject({
+      activeDocuments: 1,
+      failedDocuments: 1,
+      readyDocuments: 0,
+      readinessRate: 0,
+      issueDocuments: 1,
+    });
+    expect(failedKnowledgeBaseInsights.body.data.issues).toEqual([
+      expect.objectContaining({
+        documentId,
+        name: '退款政策.md',
+        errorMessage: '旧的解析错误',
+        reasons: ['failed'],
+      }),
+    ]);
 
     const crossUserContentPreview = await request(app)
       .post(`/api/v1/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/content/preview`)
@@ -1428,6 +1551,41 @@ describe('authentication and AI app API', () => {
     expect(batchChunkMetadata.rows).toEqual([
       { source: 'batch_content_import', total: '2' },
     ]);
+
+    const batchKnowledgeBaseInsights = await request(app)
+      .get(`/api/v1/knowledge-bases/${knowledgeBaseId}/insights`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(batchKnowledgeBaseInsights.status).toBe(200);
+    expect(batchKnowledgeBaseInsights.body.data.summary).toMatchObject({
+      totalDocuments: 3,
+      activeDocuments: 2,
+      readyDocuments: 2,
+      disabledDocuments: 1,
+      contentDocuments: 2,
+      syncedDocuments: 0,
+      issueDocuments: 2,
+      readinessRate: 100,
+      contentCoverageRate: 100,
+      syncCoverageRate: 0,
+      totalChunks: 2,
+      averageChunksPerDocument: 1,
+    });
+    expect(batchKnowledgeBaseInsights.body.data.statuses).toEqual([
+      { status: 'ready', documents: 2 },
+      { status: 'disabled', documents: 1 },
+    ]);
+    expect(batchKnowledgeBaseInsights.body.data.sources).toEqual([
+      expect.objectContaining({
+        sourceType: 'file',
+        documents: 2,
+        readyDocuments: 2,
+        chunks: 2,
+      }),
+    ]);
+    expect(batchKnowledgeBaseInsights.body.data.issues).toHaveLength(2);
+    expect(batchKnowledgeBaseInsights.body.data.issues.every(
+      (issue: { reasons: string[] }) => issue.reasons.includes('unsynced'),
+    )).toBe(true);
 
     const searchKnowledgeBaseResponse = await request(app)
       .get('/api/v1/knowledge-bases?search=产品&page=1&pageSize=10&sort=name_asc')

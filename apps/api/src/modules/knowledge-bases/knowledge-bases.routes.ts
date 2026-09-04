@@ -3,6 +3,7 @@ import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { searchKnowledgeBaseSchema } from './knowledge-base-search.schemas.js';
 import { searchKnowledgeBase } from './knowledge-base-search.service.js';
+import { getKnowledgeBaseInsights } from './knowledge-base-insights.service.js';
 import {
   batchImportKnowledgeDocumentsSchema,
   importKnowledgeDocumentContentSchema,
@@ -82,6 +83,15 @@ knowledgeBasesRouter.get('/', async (request, response) => {
 
 knowledgeBasesRouter.get('/stats', async (request, response) => {
   response.json({ data: await getKnowledgeBaseStats(authenticatedUserId(request)) });
+});
+
+knowledgeBasesRouter.get('/:knowledgeBaseId/insights', async (request, response) => {
+  response.json({
+    data: await getKnowledgeBaseInsights(
+      authenticatedUserId(request),
+      knowledgeBaseIdSchema.parse(request.params.knowledgeBaseId),
+    ),
+  });
 });
 
 knowledgeBasesRouter.get('/:knowledgeBaseId', async (request, response) => {

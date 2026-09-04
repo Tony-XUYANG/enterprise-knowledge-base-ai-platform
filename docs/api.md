@@ -54,6 +54,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/knowledge-bases/stats` | Bearer token | Read knowledge-base status and app binding totals |
 | POST | `/api/v1/knowledge-bases` | Bearer token | Create a knowledge base |
 | GET | `/api/v1/knowledge-bases/:id` | Bearer token | Read one owned knowledge base |
+| GET | `/api/v1/knowledge-bases/:id/insights` | Bearer token | Analyze document health, coverage, sources, and chunk quality |
 | PATCH | `/api/v1/knowledge-bases/:id` | Bearer token | Update one owned knowledge base |
 | DELETE | `/api/v1/knowledge-bases/:id` | Bearer token | Disable one owned knowledge base |
 | GET | `/api/v1/knowledge-bases/:id/apps` | Bearer token | List apps attached to a knowledge base |
@@ -249,6 +250,17 @@ The overview endpoint is intended to back the default workspace entry page witho
 - `models`: assistant-reply counts, status split, success rate, token use, and average latency grouped by recorded model
 
 Success rate is `completedReplies / (completedReplies + failedReplies)`; pending replies are reported separately. Missing model names are grouped as `未记录模型`. Access to another user's app returns `APP_NOT_FOUND` without revealing whether that app exists.
+
+## Knowledge-base content health
+
+`GET /api/v1/knowledge-bases/:id/insights` returns:
+
+- `summary`: active and disabled document totals, status counts, readiness, content and FastGPT Collection coverage, content size, chunk totals, and the number of documents requiring attention
+- `chunkQuality`: character-size range and average, Token annotation coverage, and average annotated Token count for chunks belonging to active documents
+- `statuses` and `sources`: document status distribution plus active file, URL, and text source totals
+- `issues`: up to eight priority documents that failed parsing, remained pending or processing for more than 24 hours, are ready without chunks, or do not have a FastGPT Collection ID
+
+Disabled documents remain visible in the status distribution but are excluded from active coverage and chunk-quality calculations. Access to another user's knowledge base returns `KNOWLEDGE_BASE_NOT_FOUND`.
 
 ## Register example
 

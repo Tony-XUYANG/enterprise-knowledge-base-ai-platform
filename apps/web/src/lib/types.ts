@@ -305,6 +305,60 @@ export interface KnowledgeDocumentStats {
   totalBytes: number;
 }
 
+export type KnowledgeBaseInsightIssue = 'failed' | 'stalled' | 'empty' | 'unsynced';
+
+export interface KnowledgeBaseInsights {
+  generatedAt: string;
+  summary: {
+    totalDocuments: number;
+    activeDocuments: number;
+    readyDocuments: number;
+    pendingDocuments: number;
+    processingDocuments: number;
+    failedDocuments: number;
+    disabledDocuments: number;
+    contentDocuments: number;
+    syncedDocuments: number;
+    issueDocuments: number;
+    readinessRate: number;
+    contentCoverageRate: number;
+    syncCoverageRate: number;
+    totalChunks: number;
+    totalBytes: number;
+    averageChunksPerDocument: number;
+  };
+  chunkQuality: {
+    totalChunks: number;
+    averageCharacters: number;
+    minimumCharacters: number;
+    maximumCharacters: number;
+    tokenizedChunks: number;
+    tokenCoverageRate: number;
+    averageTokens: number;
+  };
+  statuses: Array<{
+    status: KnowledgeDocumentStatus;
+    documents: number;
+  }>;
+  sources: Array<{
+    sourceType: KnowledgeDocumentSourceType;
+    documents: number;
+    readyDocuments: number;
+    chunks: number;
+    totalBytes: number;
+  }>;
+  issues: Array<{
+    documentId: string;
+    name: string;
+    status: Exclude<KnowledgeDocumentStatus, 'disabled'>;
+    sourceType: KnowledgeDocumentSourceType;
+    chunkCount: number;
+    updatedAt: string;
+    errorMessage: string | null;
+    reasons: KnowledgeBaseInsightIssue[];
+  }>;
+}
+
 export interface KnowledgeDocumentChunk {
   id: string;
   documentId: string;

@@ -5515,6 +5515,519 @@ a {
   .auditSource { grid-row: 4; }
 }
 
+/* Knowledge-base content health */
+
+.dialogPanel.knowledgeInsightsDialog {
+  width: min(100%, 880px);
+  overflow: hidden;
+}
+
+.knowledgeInsightsHeader {
+  padding-left: 18px;
+}
+
+.knowledgeInsightsTitleIcon {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 6px;
+  background: #e7f1ed;
+  color: #307264;
+}
+
+.knowledgeInsightsLoading,
+.knowledgeInsightsError {
+  display: flex;
+  min-height: 430px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.knowledgeInsightsError {
+  flex-direction: column;
+  padding: 30px;
+  text-align: center;
+}
+
+.knowledgeInsightsError > svg {
+  color: var(--danger);
+}
+
+.knowledgeInsightsBody {
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+}
+
+.knowledgeInsightsInlineError {
+  margin: 14px 18px 0;
+}
+
+.knowledgeInsightsSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
+}
+
+.knowledgeInsightMetric {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: 9px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 15px 18px;
+}
+
+.knowledgeInsightMetric:nth-child(3n) {
+  border-right: 0;
+}
+
+.knowledgeInsightMetric:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.knowledgeInsightMetric > span {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.knowledgeInsightMetric-positive > span {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.knowledgeInsightMetric-warning > span {
+  background: #fff4d9;
+  color: #946418;
+}
+
+.knowledgeInsightMetric-danger > span {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.knowledgeInsightMetric small {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.knowledgeInsightMetric strong {
+  min-width: 0;
+  grid-column: 2;
+  overflow: hidden;
+  font-size: 21px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeInsightMetric em {
+  grid-column: 2;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.knowledgeInsightsBreakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.knowledgeInsightsSection {
+  min-width: 0;
+  padding: 18px 20px 20px;
+}
+
+.knowledgeInsightsSection + .knowledgeInsightsSection {
+  border-left: 1px solid var(--border);
+}
+
+.knowledgeInsightsSection > header,
+.knowledgeChunkQuality > header,
+.knowledgeIssuesSection > header {
+  display: flex;
+  min-height: 35px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.knowledgeInsightsSection h3,
+.knowledgeChunkQuality h3,
+.knowledgeIssuesSection h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.knowledgeInsightsSection header > span,
+.knowledgeChunkQuality header span,
+.knowledgeIssuesSection header span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.knowledgeStatusList,
+.knowledgeSourceList {
+  display: grid;
+  gap: 9px;
+}
+
+.knowledgeStatusItem {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 9px;
+}
+
+.knowledgeStatusItem > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.knowledgeStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.knowledgeStatusDot-ready { background: #4c8b83; }
+.knowledgeStatusDot-processing { background: #5087a1; }
+.knowledgeStatusDot-pending { background: #c18a31; }
+.knowledgeStatusDot-failed { background: var(--danger); }
+.knowledgeStatusDot-disabled { background: #a0aaa6; }
+
+.knowledgeStatusTrack {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #e9eeec;
+}
+
+.knowledgeStatusTrack > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #6c9991;
+}
+
+.knowledgeStatusItem b {
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: right;
+}
+
+.knowledgeSourceItem {
+  display: grid;
+  min-height: 32px;
+  grid-template-columns: 24px minmax(56px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #edf1ef;
+  padding-bottom: 8px;
+}
+
+.knowledgeSourceItem:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.knowledgeSourceItem > span:first-child {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 4px;
+  background: #edf3f5;
+  color: #397088;
+}
+
+.knowledgeSourceItem strong {
+  font-size: 11px;
+}
+
+.knowledgeSourceItem > span:not(:first-child),
+.knowledgeSourceItem small {
+  color: var(--text-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.knowledgeInsightsEmpty {
+  display: grid;
+  min-height: 116px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.knowledgeChunkQuality {
+  border-top: 1px solid var(--border);
+  padding: 18px 20px 20px;
+}
+
+.knowledgeChunkQuality > header > div,
+.knowledgeIssuesSection > header > div {
+  display: grid;
+  gap: 1px;
+}
+
+.knowledgeChunkQuality > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.knowledgeChunkQuality > div:last-child > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  border-right: 1px solid var(--border);
+  padding: 11px 14px;
+}
+
+.knowledgeChunkQuality > div:last-child > span:last-child {
+  border-right: 0;
+}
+
+.knowledgeChunkQuality small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.knowledgeChunkQuality strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeIssuesSection {
+  border-top: 1px solid var(--border);
+  padding: 18px 20px 12px;
+}
+
+.knowledgeIssuesSection > header > b {
+  display: inline-grid;
+  min-width: 27px;
+  height: 24px;
+  place-items: center;
+  border-radius: 4px;
+  background: #edf0ef;
+  padding: 0 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.knowledgeIssuesEmpty {
+  display: flex;
+  min-height: 88px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--primary-hover);
+  font-size: 12px;
+}
+
+.knowledgeIssuesList {
+  border-top: 1px solid var(--border);
+}
+
+.knowledgeIssueRow {
+  display: grid;
+  min-height: 62px;
+  grid-template-columns: 30px minmax(180px, 1fr) minmax(180px, auto);
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #edf1ef;
+  padding: 9px 0;
+}
+
+.knowledgeIssueRow:last-child {
+  border-bottom: 0;
+}
+
+.knowledgeIssueIcon {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 5px;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.knowledgeIssueIdentity {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.knowledgeIssueIdentity strong,
+.knowledgeIssueIdentity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledgeIssueIdentity strong {
+  font-size: 11px;
+}
+
+.knowledgeIssueIdentity small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.knowledgeIssueReasons {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.knowledgeIssueTag {
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.knowledgeIssueTag-danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.knowledgeIssueTag-warning {
+  background: #fff4d9;
+  color: #895d18;
+}
+
+.knowledgeIssueTag-muted {
+  background: #edf0ef;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 760px) {
+  .knowledgeInsightsHeader {
+    padding: 12px 16px;
+  }
+
+  .knowledgeInsightsBody {
+    max-height: calc(100vh - 74px);
+  }
+
+  .knowledgeInsightsSummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledgeInsightMetric,
+  .knowledgeInsightMetric:nth-child(3n) {
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding-inline: 14px;
+  }
+
+  .knowledgeInsightMetric:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .knowledgeInsightMetric:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .knowledgeInsightsBreakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledgeInsightsSection + .knowledgeInsightsSection {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .knowledgeChunkQuality > div:last-child {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledgeChunkQuality > div:last-child > span:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .knowledgeChunkQuality > div:last-child > span:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .knowledgeIssueRow {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .knowledgeIssueReasons {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 460px) {
+  .documentPageTitle + .workspaceHeaderActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledgeInsightsSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledgeInsightMetric,
+  .knowledgeInsightMetric:nth-child(2n),
+  .knowledgeInsightMetric:nth-child(3n),
+  .knowledgeInsightMetric:nth-last-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .knowledgeInsightMetric:last-child {
+    border-bottom: 0;
+  }
+
+  .knowledgeSourceItem {
+    grid-template-columns: 24px minmax(54px, 1fr) auto auto;
+  }
+
+  .knowledgeSourceItem small {
+    grid-column: 2 / -1;
+  }
+
+  .knowledgeIssuesSection,
+  .knowledgeChunkQuality,
+  .knowledgeInsightsSection {
+    padding-inline: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

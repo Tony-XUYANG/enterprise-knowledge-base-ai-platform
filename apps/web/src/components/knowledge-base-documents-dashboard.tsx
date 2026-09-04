@@ -16,6 +16,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  ShieldCheck,
   Type,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -25,6 +26,7 @@ import { ClientApiError, clientApi } from '@/lib/client-api';
 import type {
   BatchDocumentContentImportResult,
   KnowledgeBase,
+  KnowledgeBaseInsights,
   KnowledgeDocument,
   KnowledgeDocumentList,
   KnowledgeDocumentSourceType,
@@ -32,6 +34,7 @@ import type {
   KnowledgeDocumentStatus,
 } from '@/lib/types';
 import { ConfirmDialog } from './confirm-dialog';
+import { KnowledgeBaseInsightsDialog } from './knowledge-base-insights-dialog';
 import { KnowledgeBaseSearchDialog } from './knowledge-base-search-dialog';
 import { KnowledgeDocumentsImportDialog } from './knowledge-documents-import-dialog';
 import { KnowledgeDocumentChunksDialog } from './knowledge-document-chunks-dialog';
@@ -127,6 +130,11 @@ export function KnowledgeBaseDocumentsDashboard({
   const [chunkDocument, setChunkDocument] = useState<KnowledgeDocument | null>(null);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [batchImportOpen, setBatchImportOpen] = useState(false);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  const [insights, setInsights] = useState<KnowledgeBaseInsights | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState('');
+  const [insightsReloadKey, setInsightsReloadKey] = useState(0);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -190,6 +198,34 @@ export function KnowledgeBaseDocumentsDashboard({
   useEffect(() => {
     void loadDocuments();
   }, [loadDocuments]);
+
+  useEffect(() => {
+    if (!insightsOpen) return;
+    const controller = new AbortController();
+    setInsightsLoading(true);
+    setInsightsError('');
+    void clientApi<KnowledgeBaseInsights>(
+      `/api/knowledge-bases/${knowledgeBaseId}/insights`,
+      { signal: controller.signal },
+    ).then((result) => {
+      setInsights(result);
+    }).catch((requestError: unknown) => {
+      if (controller.signal.aborted) return;
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        router.replace('/login');
+        router.refresh();
+        return;
+      }
+      setInsightsError(
+        requestError instanceof ClientApiError
+          ? requestError.message
+          : '内容健康分析加载失败，请稍后重试',
+      );
+    }).finally(() => {
+      if (!controller.signal.aborted) setInsightsLoading(false);
+    });
+    return () => controller.abort();
+  }, [insightsOpen, insightsReloadKey, knowledgeBaseId, router]);
 
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
   const hasFilters = status !== 'all' || search.length > 0;
@@ -267,6 +303,10 @@ export function KnowledgeBaseDocumentsDashboard({
           <span>{data.total}</span>
         </div>
         <div className="workspaceHeaderActions">
+          <button className="secondaryButton" type="button" onClick={() => { setInsights(null); setInsightsError(''); setInsightsOpen(true); }} disabled={!knowledgeBase}>
+            <ShieldCheck size={18} />
+            内容健康
+          </button>
           <button className="secondaryButton" type="button" onClick={() => setSearchDialogOpen(true)} disabled={!knowledgeBase || stats.chunks === 0}>
             <Search size={18} />
             检索测试
@@ -403,6 +443,19 @@ export function KnowledgeBaseDocumentsDashboard({
         knowledgeBaseName={knowledgeBase?.name ?? '知识库'}
         onClose={() => setBatchImportOpen(false)}
         onImported={finishBatchImport}
+      />
+      <KnowledgeBaseInsightsDialog
+        open={insightsOpen}
+        knowledgeBase={knowledgeBase}
+        insights={insights}
+        loading={insightsLoading}
+        error={insightsError}
+        onRetry={() => setInsightsReloadKey((key) => key + 1)}
+        onClose={() => {
+          setInsightsOpen(false);
+          setInsights(null);
+          setInsightsError('');
+        }}
       />
       <ConfirmDialog open={Boolean(disablingDocument)} appName={disablingDocument?.name ?? ''} subjectLabel="文档" onClose={() => setDisablingDocument(null)} onConfirm={disableSelectedDocument} />
       {toast && <div className="toast" role="status">{toast}</div>}
