@@ -37,8 +37,13 @@ export const listAppsQuerySchema = z.object({
   sort: z.enum(['updated_desc', 'created_desc', 'name_asc']).default('updated_desc'),
 });
 
+export const appMetricsQuerySchema = z.object({
+  range: z.enum(['7d', '30d', '90d']).default('30d'),
+});
+
 export const appIdSchema = z.string().uuid();
 
 export type CreateAppInput = z.infer<typeof createAppSchema>;
 export type UpdateAppInput = z.infer<typeof updateAppSchema>;
 export type ListAppsQuery = z.infer<typeof listAppsQuerySchema>;
+export type AppMetricsQuery = z.infer<typeof appMetricsQuerySchema>;

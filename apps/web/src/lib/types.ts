@@ -208,6 +208,47 @@ export interface AppStats {
   knowledgeBaseBindings: number;
 }
 
+export type AppMetricsRange = '7d' | '30d' | '90d';
+
+export interface AppMetrics {
+  range: AppMetricsRange;
+  fromDate: string;
+  toDate: string;
+  summary: {
+    conversations: number;
+    totalMessages: number;
+    userMessages: number;
+    assistantMessages: number;
+    completedReplies: number;
+    failedReplies: number;
+    pendingReplies: number;
+    successRate: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    averageLatencyMs: number;
+  };
+  activity: Array<{
+    day: string;
+    conversations: number;
+    messages: number;
+    assistantReplies: number;
+    failedReplies: number;
+  }>;
+  models: Array<{
+    model: string;
+    replies: number;
+    completedReplies: number;
+    failedReplies: number;
+    pendingReplies: number;
+    successRate: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    averageLatencyMs: number;
+  }>;
+}
+
 export type KnowledgeBaseStatus = 'pending' | 'ready' | 'failed' | 'disabled';
 
 export interface KnowledgeBase {

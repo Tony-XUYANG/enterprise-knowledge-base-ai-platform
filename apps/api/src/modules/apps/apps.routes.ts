@@ -9,6 +9,7 @@ import {
 } from '../knowledge-bases/knowledge-bases.service.js';
 import {
   appIdSchema,
+  appMetricsQuerySchema,
   createAppSchema,
   listAppsQuerySchema,
   updateAppSchema,
@@ -17,6 +18,7 @@ import {
   createApp,
   disableApp,
   getApp,
+  getAppMetrics,
   getAppStats,
   listApps,
   updateApp,
@@ -51,6 +53,15 @@ appsRouter.get('/', async (request, response) => {
 
 appsRouter.get('/stats', async (request, response) => {
   response.json({ data: await getAppStats(authenticatedUserId(request)) });
+});
+
+appsRouter.get('/:appId/metrics', async (request, response) => {
+  const metrics = await getAppMetrics(
+    authenticatedUserId(request),
+    appIdSchema.parse(request.params.appId),
+    appMetricsQuerySchema.parse(request.query),
+  );
+  response.json({ data: metrics });
 });
 
 appsRouter.get('/:appId', async (request, response) => {

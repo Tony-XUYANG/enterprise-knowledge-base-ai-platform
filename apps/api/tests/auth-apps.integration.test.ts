@@ -597,6 +597,18 @@ describe('authentication and AI app API', () => {
     expect(crossUserRead.status).toBe(404);
     expect(crossUserRead.body.error.code).toBe('APP_NOT_FOUND');
 
+    const crossUserMetricsResponse = await request(app)
+      .get(`/api/v1/apps/${appId}/metrics?range=7d`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(crossUserMetricsResponse.status).toBe(404);
+    expect(crossUserMetricsResponse.body.error.code).toBe('APP_NOT_FOUND');
+
+    const invalidMetricsRangeResponse = await request(app)
+      .get(`/api/v1/apps/${appId}/metrics?range=365d`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(invalidMetricsRangeResponse.status).toBe(400);
+    expect(invalidMetricsRangeResponse.body.error.code).toBe('VALIDATION_ERROR');
+
     const updateResponse = await request(app)
       .patch(`/api/v1/apps/${appId}`)
       .set('Authorization', `Bearer ${ownerAccessToken}`)
@@ -758,6 +770,58 @@ describe('authentication and AI app API', () => {
     });
     const failedAssistantMessageId: string = detailAfterGenerationFailure.body.data.messages[5].id;
 
+    const failedMetricsResponse = await request(app)
+      .get(`/api/v1/apps/${appId}/metrics?range=7d`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(failedMetricsResponse.status).toBe(200);
+    expect(failedMetricsResponse.body.data).toMatchObject({
+      range: '7d',
+      summary: {
+        conversations: 1,
+        totalMessages: 6,
+        userMessages: 3,
+        assistantMessages: 3,
+        completedReplies: 2,
+        failedReplies: 1,
+        pendingReplies: 0,
+        successRate: 66.7,
+        promptTokens: 36,
+        completionTokens: 33,
+        totalTokens: 69,
+      },
+    });
+    expect(failedMetricsResponse.body.data.summary.averageLatencyMs).toBeGreaterThan(0);
+    expect(failedMetricsResponse.body.data.activity).toHaveLength(7);
+    expect(
+      failedMetricsResponse.body.data.activity.reduce(
+        (total: number, item: { messages: number }) => total + item.messages,
+        0,
+      ),
+    ).toBe(6);
+    expect(failedMetricsResponse.body.data.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        model: 'fastgpt-test',
+        replies: 1,
+        completedReplies: 1,
+        totalTokens: 30,
+        successRate: 100,
+      }),
+      expect.objectContaining({
+        model: 'fastgpt-test-model',
+        replies: 1,
+        completedReplies: 1,
+        totalTokens: 39,
+        successRate: 100,
+      }),
+      expect.objectContaining({
+        model: '未记录模型',
+        replies: 1,
+        failedReplies: 1,
+        totalTokens: 0,
+        successRate: 0,
+      }),
+    ]));
+
     const crossUserRetryResponse = await request(app)
       .post(`/api/v1/conversations/${conversationId}/messages/${failedAssistantMessageId}/retry`)
       .set('Authorization', `Bearer ${outsiderAccessToken}`);
@@ -821,6 +885,24 @@ describe('authentication and AI app API', () => {
       .set('Authorization', `Bearer ${ownerAccessToken}`)
       .send({ role: 'assistant', content: '正在处理另一个请求', status: 'pending' });
     expect(pendingAssistantResponse.status).toBe(201);
+
+    const pendingMetricsResponse = await request(app)
+      .get(`/api/v1/apps/${appId}/metrics`)
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(pendingMetricsResponse.status).toBe(200);
+    expect(pendingMetricsResponse.body.data.range).toBe('30d');
+    expect(pendingMetricsResponse.body.data.activity).toHaveLength(30);
+    expect(pendingMetricsResponse.body.data.summary).toMatchObject({
+      totalMessages: 7,
+      assistantMessages: 4,
+      completedReplies: 3,
+      failedReplies: 0,
+      pendingReplies: 1,
+      successRate: 100,
+      promptTokens: 67,
+      completionTokens: 45,
+      totalTokens: 112,
+    });
 
     const blockedGenerationResponse = await request(app)
       .post(`/api/v1/conversations/${conversationId}/generate`)

@@ -47,6 +47,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/apps` | Bearer token | List the current user's apps |
 | GET | `/api/v1/apps/stats` | Bearer token | Read app status and knowledge-base binding totals |
 | GET | `/api/v1/apps/:appId` | Bearer token | Read one owned app |
+| GET | `/api/v1/apps/:appId/metrics` | Bearer token | Read owner-scoped usage, activity, and model metrics |
 | PATCH | `/api/v1/apps/:appId` | Bearer token | Update one owned app |
 | DELETE | `/api/v1/apps/:appId` | Bearer token | Disable one owned app |
 | GET | `/api/v1/knowledge-bases` | Bearer token | List owned knowledge bases |
@@ -238,6 +239,16 @@ The request accepts a 1-200 character `query`, `limit` from 1-20 (default 8), an
 - `recent`: up to eight recently updated apps, knowledge bases, and conversations
 
 The overview endpoint is intended to back the default workspace entry page without requiring the browser to combine multiple stats endpoints.
+
+## Application usage analytics
+
+`GET /api/v1/apps/:appId/metrics?range=30d` accepts `7d`, `30d`, or `90d`; the default is `30d`. It returns:
+
+- `summary`: new conversations, user and assistant message totals, completed/failed/pending replies, success rate, prompt/completion/total tokens, and average completed-reply latency
+- `activity`: one UTC calendar-day entry for every day in the selected range, including zero-activity days
+- `models`: assistant-reply counts, status split, success rate, token use, and average latency grouped by recorded model
+
+Success rate is `completedReplies / (completedReplies + failedReplies)`; pending replies are reported separately. Missing model names are grouped as `未记录模型`. Access to another user's app returns `APP_NOT_FOUND` without revealing whether that app exists.
 
 ## Register example
 

@@ -4,6 +4,7 @@ import {
   AppWindow,
   ArrowUpDown,
   Ban,
+  ChartNoAxesCombined,
   ChevronLeft,
   ChevronRight,
   CirclePlus,
@@ -21,12 +22,15 @@ import { ClientApiError, clientApi } from '@/lib/client-api';
 import type {
   AiApp,
   AppList,
+  AppMetrics,
+  AppMetricsRange,
   AppStats,
   AppStatus,
   KnowledgeBase,
   KnowledgeBaseList,
   KnowledgeBaseStatus,
 } from '@/lib/types';
+import { AppMetricsDialog } from './app-metrics-dialog';
 import { ApplicationDialog, type AppFormInput } from './application-dialog';
 import { ConfirmDialog } from './confirm-dialog';
 import {
@@ -94,6 +98,12 @@ export function AppsDashboard() {
   const [editingApp, setEditingApp] = useState<AiApp | null>(null);
   const [disablingApp, setDisablingApp] = useState<AiApp | null>(null);
   const [bindingApp, setBindingApp] = useState<AiApp | null>(null);
+  const [metricsApp, setMetricsApp] = useState<AiApp | null>(null);
+  const [metricsRange, setMetricsRange] = useState<AppMetricsRange>('30d');
+  const [metrics, setMetrics] = useState<AppMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState('');
+  const [metricsReloadKey, setMetricsReloadKey] = useState(0);
   const [relationOptions, setRelationOptions] = useState<RelationOption[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(false);
   const [togglingRelationId, setTogglingRelationId] = useState<string | null>(null);
@@ -155,6 +165,34 @@ export function AppsDashboard() {
     void loadApps();
   }, [loadApps]);
 
+  useEffect(() => {
+    if (!metricsApp) return;
+    const controller = new AbortController();
+    setMetricsLoading(true);
+    setMetricsError('');
+    void clientApi<AppMetrics>(
+      `/api/apps/${metricsApp.id}/metrics?range=${metricsRange}`,
+      { signal: controller.signal },
+    ).then((result) => {
+      setMetrics(result);
+    }).catch((requestError: unknown) => {
+      if (controller.signal.aborted) return;
+      if (requestError instanceof ClientApiError && requestError.status === 401) {
+        router.replace('/login');
+        router.refresh();
+        return;
+      }
+      setMetricsError(
+        requestError instanceof ClientApiError
+          ? requestError.message
+          : '应用分析加载失败，请稍后重试',
+      );
+    }).finally(() => {
+      if (!controller.signal.aborted) setMetricsLoading(false);
+    });
+    return () => controller.abort();
+  }, [metricsApp, metricsRange, metricsReloadKey, router]);
+
   const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
   const hasFilters = status !== 'all' || search.length > 0;
 
@@ -166,6 +204,13 @@ export function AppsDashboard() {
   function openEditDialog(app: AiApp) {
     setEditingApp(app);
     setDialogOpen(true);
+  }
+
+  function openMetricsDialog(app: AiApp) {
+    setMetrics(null);
+    setMetricsError('');
+    setMetricsRange('30d');
+    setMetricsApp(app);
   }
 
   async function saveApp(input: AppFormInput) {
@@ -385,6 +430,9 @@ export function AppsDashboard() {
                     <StatusBadge status={item.status} />
                   </div>
                   <div className="rowActions">
+                    <button className="iconButton" type="button" onClick={() => openMetricsDialog(item)} aria-label={`查看 ${item.name} 的应用分析`} title="应用分析">
+                      <ChartNoAxesCombined size={17} />
+                    </button>
                     <button className="iconButton" type="button" onClick={() => void openKnowledgeBaseRelations(item)} aria-label={`管理 ${item.name} 的知识库`} title="关联知识库">
                       <Link2 size={17} />
                     </button>
@@ -438,6 +486,21 @@ export function AppsDashboard() {
         togglingId={togglingRelationId}
         onClose={() => setBindingApp(null)}
         onToggle={toggleKnowledgeBaseRelation}
+      />
+      <AppMetricsDialog
+        open={Boolean(metricsApp)}
+        app={metricsApp}
+        range={metricsRange}
+        metrics={metrics}
+        loading={metricsLoading}
+        error={metricsError}
+        onRangeChange={setMetricsRange}
+        onRetry={() => setMetricsReloadKey((key) => key + 1)}
+        onClose={() => {
+          setMetricsApp(null);
+          setMetrics(null);
+          setMetricsError('');
+        }}
       />
       {toast && <div className="toast" role="status">{toast}</div>}
     </WorkspaceShell>
