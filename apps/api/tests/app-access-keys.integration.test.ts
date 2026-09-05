@@ -261,6 +261,91 @@ describe('application access keys and external chat API', () => {
     expect(continuedFastGptBody?.messages).toHaveLength(3);
     fastGptFetch.mockRestore();
 
+    const invalidExternalChat = await request(app)
+      .post('/api/v1/external/chat')
+      .set('Authorization', `Bearer ${accessKeySecret}`)
+      .send({ message: '' });
+    expect(invalidExternalChat.status).toBe(400);
+    expect(invalidExternalChat.body.error.code).toBe('VALIDATION_ERROR');
+
+    const unauthorizedRequestLog = await request(app)
+      .get(`/api/v1/apps/${ownerAppId}/external-requests`);
+    expect(unauthorizedRequestLog.status).toBe(401);
+
+    const crossUserRequestLog = await request(app)
+      .get(`/api/v1/apps/${ownerAppId}/external-requests`)
+      .set('Authorization', `Bearer ${outsiderAccessToken}`);
+    expect(crossUserRequestLog.status).toBe(404);
+
+    const requestLogResponse = await request(app)
+      .get(`/api/v1/apps/${ownerAppId}/external-requests`)
+      .query({ range: '24h', pageSize: 1 })
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(requestLogResponse.status).toBe(200);
+    expect(requestLogResponse.body.data).toMatchObject({
+      page: 1,
+      pageSize: 1,
+      total: 3,
+      range: '24h',
+      summary: {
+        calls: 3,
+        successes: 2,
+        failures: 1,
+        successRate: 66.7,
+        promptTokens: 58,
+        completionTokens: 32,
+        totalTokens: 90,
+      },
+    });
+    expect(requestLogResponse.body.data.items).toHaveLength(1);
+    expect(requestLogResponse.body.data.items[0]).toMatchObject({
+      appId: ownerAppId,
+      accessKeyId,
+      accessKeyName: '生产客服门户',
+      accessKeyPrefix: accessKeySecret.slice(0, 15),
+      outcome: 'failure',
+      httpStatus: 400,
+      errorCode: 'VALIDATION_ERROR',
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    });
+    expect(requestLogResponse.body.data.items[0].latencyMs).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(requestLogResponse.body)).not.toContain(accessKeySecret);
+    expect(JSON.stringify(requestLogResponse.body)).not.toContain('订单如何退款？');
+
+    const successfulRequestLog = await request(app)
+      .get(`/api/v1/apps/${ownerAppId}/external-requests`)
+      .query({ range: '7d', outcome: 'success', accessKeyId, pageSize: 20 })
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(successfulRequestLog.status).toBe(200);
+    expect(successfulRequestLog.body.data.total).toBe(2);
+    expect(successfulRequestLog.body.data.items).toHaveLength(2);
+    expect(successfulRequestLog.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        conversationId: externalConversationId,
+        outcome: 'success',
+        httpStatus: 201,
+      }),
+    ]));
+
+    const secondAppRequestLog = await request(app)
+      .get(`/api/v1/apps/${secondAppId}/external-requests`)
+      .query({ range: '7d', outcome: 'failure' })
+      .set('Authorization', `Bearer ${ownerAccessToken}`);
+    expect(secondAppRequestLog.status).toBe(200);
+    expect(secondAppRequestLog.body.data).toMatchObject({
+      total: 1,
+      summary: { calls: 1, successes: 0, failures: 1, successRate: 0 },
+    });
+    expect(secondAppRequestLog.body.data.items[0]).toMatchObject({
+      accessKeyId: secondKeyId,
+      conversationId: null,
+      outcome: 'failure',
+      httpStatus: 404,
+      errorCode: 'EXTERNAL_CONVERSATION_NOT_FOUND',
+    });
+
     const crossUserRevoke = await request(app)
       .delete(`/api/v1/apps/${ownerAppId}/access-keys/${accessKeyId}`)
       .set('Authorization', `Bearer ${outsiderAccessToken}`);

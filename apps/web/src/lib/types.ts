@@ -227,6 +227,46 @@ export interface CreatedAppAccessKey {
   secret: string;
 }
 
+export type ExternalApiRequestRange = '24h' | '7d' | '30d' | '90d';
+export type ExternalApiRequestOutcome = 'success' | 'failure';
+
+export interface ExternalApiRequestRecord {
+  id: string;
+  appId: string;
+  accessKeyId: string | null;
+  accessKeyName: string;
+  accessKeyPrefix: string;
+  conversationId: string | null;
+  endpoint: string;
+  outcome: ExternalApiRequestOutcome;
+  httpStatus: number;
+  errorCode: string | null;
+  latencyMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  clientIp: string | null;
+  createdAt: string;
+}
+
+export interface ExternalApiRequestList {
+  items: ExternalApiRequestRecord[];
+  page: number;
+  pageSize: number;
+  total: number;
+  range: ExternalApiRequestRange;
+  summary: {
+    calls: number;
+    successes: number;
+    failures: number;
+    successRate: number;
+    averageLatencyMs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}
+
 export type AppMetricsRange = '7d' | '30d' | '90d';
 
 export interface AppMetrics {

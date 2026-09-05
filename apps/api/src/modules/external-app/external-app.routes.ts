@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { ZodError } from 'zod';
 import { AppError } from '../../errors/app-error.js';
 import { authenticateAppAccessKey } from '../../middleware/authenticate-app-access-key.js';
+import { recordExternalApiRequest } from '../apps/external-api-requests.service.js';
 import { externalAppChatSchema } from './external-app.schemas.js';
 import { executeExternalAppChat } from './external-app.service.js';
 
@@ -30,11 +32,54 @@ externalAppRouter.post(
     if (!request.appAccess) {
       throw new AppError(401, 'APP_ACCESS_KEY_REQUIRED', '请提供应用访问密钥');
     }
-    response.status(201).json({
-      data: await executeExternalAppChat(
-        request.appAccess,
-        externalAppChatSchema.parse(request.body),
-      ),
-    });
+    const startedAt = Date.now();
+    let requestedConversationId: string | null = null;
+
+    try {
+      const input = externalAppChatSchema.parse(request.body);
+      const data = await executeExternalAppChat(request.appAccess, input, (conversationId) => {
+        requestedConversationId = conversationId;
+      });
+      await recordExternalApiRequest({
+        access: request.appAccess,
+        conversationId: data.conversationId,
+        endpoint: '/api/v1/external/chat',
+        outcome: 'success',
+        httpStatus: 201,
+        latencyMs: Date.now() - startedAt,
+        promptTokens: data.assistantMessage.promptTokens,
+        completionTokens: data.assistantMessage.completionTokens,
+        clientIp: request.ip ?? null,
+        userAgent: request.header('user-agent') ?? null,
+      }).catch((error: unknown) => {
+        request.log.error({ err: error }, 'Failed to record external API request');
+      });
+      response.status(201).json({ data });
+    } catch (error) {
+      const status = error instanceof AppError
+        ? error.status
+        : error instanceof ZodError
+          ? 400
+          : 500;
+      const errorCode = error instanceof AppError
+        ? error.code
+        : error instanceof ZodError
+          ? 'VALIDATION_ERROR'
+          : 'INTERNAL_SERVER_ERROR';
+      await recordExternalApiRequest({
+        access: request.appAccess,
+        conversationId: requestedConversationId,
+        endpoint: '/api/v1/external/chat',
+        outcome: 'failure',
+        httpStatus: status,
+        errorCode,
+        latencyMs: Date.now() - startedAt,
+        clientIp: request.ip ?? null,
+        userAgent: request.header('user-agent') ?? null,
+      }).catch((loggingError: unknown) => {
+        request.log.error({ err: loggingError }, 'Failed to record external API request');
+      });
+      throw error;
+    }
   },
 );

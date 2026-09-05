@@ -8,6 +8,7 @@ import type { ExternalAppChatInput } from './external-app.schemas.js';
 export async function executeExternalAppChat(
   access: AppAccessContext,
   input: ExternalAppChatInput,
+  onConversationResolved?: (conversationId: string) => void,
 ) {
   let conversationId = input.conversationId;
   let created = false;
@@ -37,6 +38,8 @@ export async function executeExternalAppChat(
     conversationId = conversation.id;
     created = true;
   }
+
+  onConversationResolved?.(conversationId);
 
   const generation = await generateConversationReply(
     access.ownerId,

@@ -22,6 +22,8 @@ interface ResolvedAccessKeyRow {
   id: string;
   app_id: string;
   owner_id: string;
+  name: string;
+  key_prefix: string;
   app_status: 'draft' | 'active' | 'disabled';
   has_fastgpt_api_key: boolean;
   user_status: 'active' | 'disabled';
@@ -42,6 +44,8 @@ export interface AppAccessKey {
 
 export interface AppAccessContext {
   accessKeyId: string;
+  accessKeyName: string;
+  accessKeyPrefix: string;
   appId: string;
   ownerId: string;
 }
@@ -195,6 +199,7 @@ export async function resolveAppAccessKey(secret: string): Promise<AppAccessCont
 
   const result = await query<ResolvedAccessKeyRow>(
     `SELECT access_key.id, access_key.app_id, access_key.owner_id,
+            access_key.name, access_key.key_prefix,
             app.status AS app_status,
             (app.fastgpt_api_key_ciphertext IS NOT NULL) AS has_fastgpt_api_key,
             owner.status AS user_status,
@@ -229,6 +234,8 @@ export async function resolveAppAccessKey(secret: string): Promise<AppAccessCont
 
   return {
     accessKeyId: accessKey.id,
+    accessKeyName: accessKey.name,
+    accessKeyPrefix: accessKey.key_prefix,
     appId: accessKey.app_id,
     ownerId: accessKey.owner_id,
   };

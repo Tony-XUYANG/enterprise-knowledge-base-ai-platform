@@ -223,6 +223,10 @@ Invoke-RestMethod `
 
 Use the returned `conversationId` in the next request to preserve context. The API never returns the application access key or upstream FastGPT key in chat responses or message metadata.
 
+`GET /api/v1/apps/:appId/external-requests` returns the authenticated owner's external-call observability data. It accepts `page`, `pageSize`, `range=24h|7d|30d|90d`, optional `outcome=success|failure`, and optional `accessKeyId`. The response contains the filtered page plus a range summary with total calls, successes, failures, success rate, average post-authentication request latency, and prompt/completion Token totals. The summary honors the range and key filters but intentionally ignores the outcome filter so the success/failure comparison remains meaningful.
+
+Calls are recorded only after a valid access key has established the application boundary. Each row includes the endpoint, HTTP status, stable error code, safe key name and prefix snapshot, optional owned conversation, source IP, latency, and Token counts. Invalid or expired credentials cannot be attributed and are not recorded. Logging is best-effort and cannot replace the chat response if observability storage fails. Access-key secrets, FastGPT credentials, user messages, response content, and request bodies are never written to this table or returned by the log endpoint.
+
 ## Knowledge-base documents
 
 Document records track file, URL, or text sources, MIME type, byte size, checksum, FastGPT Collection ID, processing status, chunk count, and failure details. Lists support `page`, `pageSize`, `search`, `status`, and the standard sort values. URL sources require a valid `sourceUri`.

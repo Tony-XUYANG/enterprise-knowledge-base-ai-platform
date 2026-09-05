@@ -7,9 +7,11 @@ DECLARE
     owner_id UUID;
     visitor_id UUID;
     app_id UUID;
+    access_key_id UUID;
     owner_kb_id UUID;
     visitor_kb_id UUID;
     test_conversation_id UUID;
+    external_conversation_id UUID;
     rejected BOOLEAN;
 BEGIN
     INSERT INTO users (email, password_hash, display_name)
@@ -32,7 +34,7 @@ BEGIN
     ) VALUES (
         app_id, owner_id, '生产接入', 'kh_app_abcdefgh', repeat('c', 64),
         CURRENT_TIMESTAMP + INTERVAL '90 days'
-    );
+    ) RETURNING id INTO access_key_id;
 
     rejected := FALSE;
     BEGIN
@@ -87,6 +89,40 @@ BEGIN
 
     ASSERT (SELECT count(*) FROM messages WHERE messages.conversation_id = test_conversation_id) = 2,
         '会话应包含两条消息';
+
+    INSERT INTO conversations (app_id, user_id, title)
+    VALUES (app_id, owner_id, '外部 API 对话')
+    RETURNING id INTO external_conversation_id;
+
+    INSERT INTO external_api_requests (
+        app_id, owner_id, access_key_id, access_key_name, access_key_prefix,
+        conversation_id, endpoint, outcome, http_status, latency_ms,
+        prompt_tokens, completion_tokens, client_ip
+    ) VALUES (
+        app_id, owner_id, access_key_id, '生产接入', 'kh_app_abcdefgh',
+        external_conversation_id, '/api/v1/external/chat', 'success', 201, 320,
+        120, 35, '127.0.0.1'
+    );
+
+    rejected := FALSE;
+    BEGIN
+        INSERT INTO external_api_requests (
+            app_id, owner_id, access_key_id, access_key_name, access_key_prefix,
+            endpoint, outcome, http_status, latency_ms
+        ) VALUES (
+            app_id, visitor_id, access_key_id, '越权接入', 'kh_app_abcdefgh',
+            '/api/v1/external/chat', 'success', 201, 10
+        );
+    EXCEPTION WHEN foreign_key_violation THEN
+        rejected := TRUE;
+    END;
+    ASSERT rejected, '调用日志必须继承应用和访问密钥所有权';
+
+    ASSERT (
+        SELECT prompt_tokens + completion_tokens
+          FROM external_api_requests
+         WHERE conversation_id = external_conversation_id
+    ) = 155, '调用日志应保留 Token 指标';
 
     RAISE NOTICE '数据库冒烟测试通过：关系、外键、唯一约束均正常。';
 END;

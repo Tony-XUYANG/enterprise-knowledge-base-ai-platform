@@ -15,6 +15,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  ScrollText,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
@@ -32,6 +33,7 @@ import type {
 } from '@/lib/types';
 import { AppMetricsDialog } from './app-metrics-dialog';
 import { AppAccessKeysDialog } from './app-access-keys-dialog';
+import { AppExternalRequestsDialog } from './app-external-requests-dialog';
 import { ApplicationDialog, type AppFormInput } from './application-dialog';
 import { ConfirmDialog } from './confirm-dialog';
 import {
@@ -106,6 +108,7 @@ export function AppsDashboard() {
   const [metricsError, setMetricsError] = useState('');
   const [metricsReloadKey, setMetricsReloadKey] = useState(0);
   const [accessKeysApp, setAccessKeysApp] = useState<AiApp | null>(null);
+  const [externalRequestsApp, setExternalRequestsApp] = useState<AiApp | null>(null);
   const [relationOptions, setRelationOptions] = useState<RelationOption[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(false);
   const [togglingRelationId, setTogglingRelationId] = useState<string | null>(null);
@@ -435,6 +438,9 @@ export function AppsDashboard() {
                     <button className="iconButton" type="button" onClick={() => setAccessKeysApp(item)} aria-label={`管理 ${item.name} 的访问密钥`} title="访问密钥">
                       <KeyRound size={17} />
                     </button>
+                    <button className="iconButton" type="button" onClick={() => setExternalRequestsApp(item)} aria-label={`查看 ${item.name} 的调用日志`} title="调用日志">
+                      <ScrollText size={17} />
+                    </button>
                     <button className="iconButton" type="button" onClick={() => openMetricsDialog(item)} aria-label={`查看 ${item.name} 的应用分析`} title="应用分析">
                       <ChartNoAxesCombined size={17} />
                     </button>
@@ -512,6 +518,11 @@ export function AppsDashboard() {
         app={accessKeysApp}
         onClose={() => setAccessKeysApp(null)}
         onChanged={setToast}
+      />
+      <AppExternalRequestsDialog
+        open={Boolean(externalRequestsApp)}
+        app={externalRequestsApp}
+        onClose={() => setExternalRequestsApp(null)}
       />
       {toast && <div className="toast" role="status">{toast}</div>}
     </WorkspaceShell>

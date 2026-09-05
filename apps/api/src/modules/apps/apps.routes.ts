@@ -11,6 +11,8 @@ import {
   listAppAccessKeys,
   revokeAppAccessKey,
 } from './app-access-keys.service.js';
+import { externalApiRequestListQuerySchema } from './external-api-requests.schemas.js';
+import { listExternalApiRequests } from './external-api-requests.service.js';
 import {
   attachKnowledgeBaseToApp,
   detachKnowledgeBaseFromApp,
@@ -99,6 +101,16 @@ appsRouter.delete('/:appId/access-keys/:accessKeyId', async (request, response) 
     appAccessKeyIdSchema.parse(request.params.accessKeyId),
   );
   response.status(204).send();
+});
+
+appsRouter.get('/:appId/external-requests', async (request, response) => {
+  response.json({
+    data: await listExternalApiRequests(
+      authenticatedUserId(request),
+      appIdSchema.parse(request.params.appId),
+      externalApiRequestListQuerySchema.parse(request.query),
+    ),
+  });
 });
 
 appsRouter.get('/:appId', async (request, response) => {
