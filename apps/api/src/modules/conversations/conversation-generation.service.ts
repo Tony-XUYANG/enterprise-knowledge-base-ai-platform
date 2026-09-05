@@ -47,6 +47,11 @@ interface PreparedGeneration {
   pendingMessage: ConversationMessage;
 }
 
+interface GenerationContext {
+  source: 'fastgpt_chat' | 'app_access_key';
+  accessKeyId?: string;
+}
+
 export interface ConversationGenerationResult {
   userMessage: ConversationMessage;
   assistantMessage: ConversationMessage;
@@ -167,6 +172,7 @@ async function prepareNewGeneration(
   ownerId: string,
   conversationId: string,
   input: GenerateConversationReplyInput,
+  context: GenerationContext,
 ): Promise<PreparedGeneration> {
   try {
     return await withTransaction(async (client) => {
@@ -186,7 +192,15 @@ async function prepareNewGeneration(
            conversation_id, sequence_no, role, content, status, metadata
          ) VALUES ($1, $2, 'user', $3, 'completed', $4::jsonb)
          RETURNING *`,
-        [conversationId, nextSequence, input.message, JSON.stringify({ source: 'fastgpt_chat' })],
+        [
+          conversationId,
+          nextSequence,
+          input.message,
+          JSON.stringify({
+            source: context.source,
+            ...(context.accessKeyId ? { accessKeyId: context.accessKeyId } : {}),
+          }),
+        ],
       );
       const pendingResult = await client.query<GenerationMessageRow>(
         `INSERT INTO messages (
@@ -430,11 +444,12 @@ export async function generateConversationReply(
   ownerId: string,
   conversationId: string,
   input: GenerateConversationReplyInput,
+  context: GenerationContext = { source: 'fastgpt_chat' },
 ): Promise<ConversationGenerationResult> {
   return executePreparedGeneration(
     ownerId,
     conversationId,
-    await prepareNewGeneration(ownerId, conversationId, input),
+    await prepareNewGeneration(ownerId, conversationId, input, context),
   );
 }
 

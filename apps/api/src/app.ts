@@ -10,6 +10,7 @@ import { adminUsersRouter } from './modules/admin-users/admin-users.routes.js';
 import { appsRouter } from './modules/apps/apps.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { conversationsRouter } from './modules/conversations/conversations.routes.js';
+import { externalAppRouter } from './modules/external-app/external-app.routes.js';
 import { knowledgeBasesRouter } from './modules/knowledge-bases/knowledge-bases.routes.js';
 import {
   adminInvitationsRouter,
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/api/v1/apps', appsRouter);
   app.use('/api/v1/knowledge-bases', knowledgeBasesRouter);
   app.use('/api/v1/conversations', conversationsRouter);
+  app.use('/api/v1/external', externalAppRouter);
   app.use('/api/v1/overview', overviewRouter);
 
   app.use(notFoundHandler);

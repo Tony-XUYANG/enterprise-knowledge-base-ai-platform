@@ -3,6 +3,15 @@ import { AppError } from '../../errors/app-error.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { knowledgeBaseIdSchema } from '../knowledge-bases/knowledge-bases.schemas.js';
 import {
+  appAccessKeyIdSchema,
+  createAppAccessKeySchema,
+} from './app-access-keys.schemas.js';
+import {
+  createAppAccessKey,
+  listAppAccessKeys,
+  revokeAppAccessKey,
+} from './app-access-keys.service.js';
+import {
   attachKnowledgeBaseToApp,
   detachKnowledgeBaseFromApp,
   listAppKnowledgeBases,
@@ -62,6 +71,34 @@ appsRouter.get('/:appId/metrics', async (request, response) => {
     appMetricsQuerySchema.parse(request.query),
   );
   response.json({ data: metrics });
+});
+
+appsRouter.get('/:appId/access-keys', async (request, response) => {
+  response.json({
+    data: await listAppAccessKeys(
+      authenticatedUserId(request),
+      appIdSchema.parse(request.params.appId),
+    ),
+  });
+});
+
+appsRouter.post('/:appId/access-keys', async (request, response) => {
+  response.status(201).json({
+    data: await createAppAccessKey(
+      authenticatedUserId(request),
+      appIdSchema.parse(request.params.appId),
+      createAppAccessKeySchema.parse(request.body),
+    ),
+  });
+});
+
+appsRouter.delete('/:appId/access-keys/:accessKeyId', async (request, response) => {
+  await revokeAppAccessKey(
+    authenticatedUserId(request),
+    appIdSchema.parse(request.params.appId),
+    appAccessKeyIdSchema.parse(request.params.accessKeyId),
+  );
+  response.status(204).send();
 });
 
 appsRouter.get('/:appId', async (request, response) => {

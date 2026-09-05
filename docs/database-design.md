@@ -13,6 +13,7 @@ erDiagram
     ROLES ||--o{ USER_ROLES : grants
     USERS ||--o{ MEMBER_INVITATIONS : sends
     USERS ||--o{ AI_APPS : owns
+    AI_APPS ||--o{ APP_ACCESS_KEYS : authorizes
     USERS ||--o{ KNOWLEDGE_BASES : owns
     KNOWLEDGE_BASES ||--o{ KNOWLEDGE_DOCUMENTS : contains
     KNOWLEDGE_DOCUMENTS ||--o{ KNOWLEDGE_DOCUMENT_CHUNKS : splits_into
@@ -49,7 +50,8 @@ erDiagram
 - 消息使用 `(conversation_id, sequence_no)` 唯一约束维持会话内顺序。
 - FastGPT 生成在会话行锁下检查进行中任务，并在一个事务内写入用户消息和 `pending` 助手消息；部分唯一索引保证每个对话最多只有一条待生成助手消息，再原位更新为 `completed` 或 `failed`。
 - 最新失败助手消息可原位重试，不新增重复用户消息；`metadata` 保存重试次数、历史错误码和重试时间，继续维持原序号审计链路。
-- FastGPT API Key 只预留密文字段，应用层不得保存明文密钥。
+- FastGPT API Key 是平台访问上游服务的凭据，只保存 AES-256-GCM 密文，应用层不得返回明文。
+- `app_access_keys` 是外部系统访问单个应用的独立凭据，通过 `(app_id, owner_id)` 复合外键继承应用所有权。密钥明文只在创建响应出现一次；数据库仅保存 SHA-256 哈希、固定前缀、有效期、撤销时间和最近使用时间。外部请求必须同时满足密钥有效、账号启用且邮箱已验证、应用启用及 FastGPT 凭据已配置，并且只能继续同一应用的活跃对话。
 - 刷新令牌行同时作为稳定设备会话：轮换时原位替换令牌哈希并更新最近活动时间，不为同一设备制造重复会话；访问令牌携带会话 ID，支持识别和单独撤销当前设备。
 - `refresh_token_history` 只保存已轮换令牌的 SHA-256 哈希、所属会话和原到期时间。命中未过期历史哈希会在同一事务中撤销该设备当前会话并记录失败安全事件；过期历史在正常轮换时清理，令牌明文始终不落库。
 - `password_reset_tokens` 保存一次性随机令牌的 SHA-256 哈希、用户、到期/消费时间和请求 IP；同一用户的新请求会作废旧链接。确认重置按用户行、令牌行的固定顺序加锁，并在一个事务内执行密码历史写入、全部链接消费、登录锁定清零、设备会话撤销和安全事件记录。

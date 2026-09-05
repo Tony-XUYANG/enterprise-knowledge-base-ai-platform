@@ -208,6 +208,25 @@ export interface AppStats {
   knowledgeBaseBindings: number;
 }
 
+export type AppAccessKeyStatus = 'active' | 'expired' | 'revoked';
+
+export interface AppAccessKey {
+  id: string;
+  appId: string;
+  name: string;
+  prefix: string;
+  status: AppAccessKeyStatus;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreatedAppAccessKey {
+  accessKey: AppAccessKey;
+  secret: string;
+}
+
 export type AppMetricsRange = '7d' | '30d' | '90d';
 
 export interface AppMetrics {

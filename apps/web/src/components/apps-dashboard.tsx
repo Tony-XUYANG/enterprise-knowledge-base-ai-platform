@@ -31,6 +31,7 @@ import type {
   KnowledgeBaseStatus,
 } from '@/lib/types';
 import { AppMetricsDialog } from './app-metrics-dialog';
+import { AppAccessKeysDialog } from './app-access-keys-dialog';
 import { ApplicationDialog, type AppFormInput } from './application-dialog';
 import { ConfirmDialog } from './confirm-dialog';
 import {
@@ -104,6 +105,7 @@ export function AppsDashboard() {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsError, setMetricsError] = useState('');
   const [metricsReloadKey, setMetricsReloadKey] = useState(0);
+  const [accessKeysApp, setAccessKeysApp] = useState<AiApp | null>(null);
   const [relationOptions, setRelationOptions] = useState<RelationOption[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(false);
   const [togglingRelationId, setTogglingRelationId] = useState<string | null>(null);
@@ -430,6 +432,9 @@ export function AppsDashboard() {
                     <StatusBadge status={item.status} />
                   </div>
                   <div className="rowActions">
+                    <button className="iconButton" type="button" onClick={() => setAccessKeysApp(item)} aria-label={`管理 ${item.name} 的访问密钥`} title="访问密钥">
+                      <KeyRound size={17} />
+                    </button>
                     <button className="iconButton" type="button" onClick={() => openMetricsDialog(item)} aria-label={`查看 ${item.name} 的应用分析`} title="应用分析">
                       <ChartNoAxesCombined size={17} />
                     </button>
@@ -501,6 +506,12 @@ export function AppsDashboard() {
           setMetrics(null);
           setMetricsError('');
         }}
+      />
+      <AppAccessKeysDialog
+        open={Boolean(accessKeysApp)}
+        app={accessKeysApp}
+        onClose={() => setAccessKeysApp(null)}
+        onChanged={setToast}
       />
       {toast && <div className="toast" role="status">{toast}</div>}
     </WorkspaceShell>

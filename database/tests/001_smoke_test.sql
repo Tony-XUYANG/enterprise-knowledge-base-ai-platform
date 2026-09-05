@@ -27,6 +27,26 @@ BEGIN
     VALUES (owner_id, '企业知识助手', 'active')
     RETURNING id INTO app_id;
 
+    INSERT INTO app_access_keys (
+        app_id, owner_id, name, key_prefix, secret_hash, expires_at
+    ) VALUES (
+        app_id, owner_id, '生产接入', 'kh_app_abcdefgh', repeat('c', 64),
+        CURRENT_TIMESTAMP + INTERVAL '90 days'
+    );
+
+    rejected := FALSE;
+    BEGIN
+        INSERT INTO app_access_keys (
+            app_id, owner_id, name, key_prefix, secret_hash, expires_at
+        ) VALUES (
+            app_id, visitor_id, '越权接入', 'kh_app_ijklmnop', repeat('d', 64),
+            CURRENT_TIMESTAMP + INTERVAL '90 days'
+        );
+    EXCEPTION WHEN foreign_key_violation THEN
+        rejected := TRUE;
+    END;
+    ASSERT rejected, '访问密钥所有者必须与应用所有者一致';
+
     INSERT INTO knowledge_bases (owner_id, name, status)
     VALUES (owner_id, '产品文档', 'ready')
     RETURNING id INTO owner_kb_id;

@@ -1525,7 +1525,7 @@ a {
 .tableHeader,
 .appRow {
   display: grid;
-  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.85fr) 90px 100px 152px;
+  grid-template-columns: minmax(260px, 1.5fr) minmax(160px, 0.85fr) 90px 100px 198px;
   align-items: center;
   gap: 18px;
 }
@@ -3865,6 +3865,18 @@ a {
   font-weight: 650;
 }
 
+@media (min-width: 981px) and (max-width: 1120px) {
+  .tableHeader,
+  .appRow {
+    grid-template-columns: minmax(220px, 1.3fr) minmax(130px, 0.8fr) 100px 198px;
+  }
+
+  .tableHeader > :nth-child(3),
+  .appRow .attachmentCount {
+    display: none;
+  }
+}
+
 @media (max-width: 980px) {
   .appShell {
     grid-template-columns: 190px minmax(0, 1fr);
@@ -3880,7 +3892,7 @@ a {
 
   .tableHeader,
   .appRow {
-    grid-template-columns: minmax(220px, 1.3fr) minmax(130px, 0.8fr) 100px 152px;
+    grid-template-columns: minmax(220px, 1.3fr) minmax(130px, 0.8fr) 100px 198px;
   }
 
   .tableHeader > :nth-child(3),
@@ -5513,6 +5525,373 @@ a {
   .auditPerson { grid-row: 2; }
   .auditActor { grid-row: 3; }
   .auditSource { grid-row: 4; }
+}
+
+/* Application access keys */
+
+.dialogPanel.appAccessKeysDialog {
+  width: min(100%, 800px);
+  overflow: hidden;
+}
+
+.appAccessKeysHeader {
+  padding-left: 18px;
+}
+
+.appAccessKeysTitleIcon {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 6px;
+  background: #e7f1ed;
+  color: #307264;
+}
+
+.appAccessKeysBody {
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+}
+
+.appAccessKeyCreate {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px auto;
+  align-items: end;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 18px 20px;
+  background: var(--surface-muted);
+}
+
+.appAccessKeyCreate .field {
+  gap: 5px;
+}
+
+.appAccessKeyCreate .primaryButton {
+  min-width: 112px;
+}
+
+.createdAccessKey {
+  border-bottom: 1px solid #cce0d9;
+  padding: 15px 20px;
+  background: #f1f8f5;
+}
+
+.createdAccessKey > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.createdAccessKey > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--primary-hover);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.createdAccessKey > header small {
+  color: #8a651f;
+  font-size: 10px;
+}
+
+.createdAccessKey > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.createdAccessKey code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  border: 1px solid #c7dbd4;
+  border-radius: 5px;
+  background: var(--surface);
+  padding: 10px 12px;
+  color: #274840;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.createdAccessKey .iconButton {
+  border-color: #c7dbd4;
+  background: var(--surface);
+  color: var(--primary-hover);
+}
+
+.appAccessKeyError {
+  margin: 14px 20px 0;
+}
+
+.appAccessKeyListSection {
+  padding: 18px 20px 8px;
+}
+
+.appAccessKeyListSection > header {
+  display: flex;
+  min-height: 39px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.appAccessKeyListSection > header > div {
+  display: grid;
+  gap: 1px;
+}
+
+.appAccessKeyListSection h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.appAccessKeyListSection > header span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.appAccessKeyListSection > header > b {
+  border-radius: 4px;
+  background: var(--primary-soft);
+  padding: 4px 7px;
+  color: var(--primary-hover);
+  font-size: 10px;
+}
+
+.appAccessKeysLoading,
+.appAccessKeysEmpty {
+  display: flex;
+  min-height: 190px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.appAccessKeyList {
+  border-top: 1px solid var(--border);
+}
+
+.appAccessKeyRow {
+  display: grid;
+  min-height: 70px;
+  grid-template-columns: 32px minmax(150px, 1fr) minmax(205px, 0.95fr) 58px 96px;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #e9eeec;
+  padding: 10px 0;
+}
+
+.appAccessKeyRow:last-child {
+  border-bottom: 0;
+}
+
+.appAccessKeyIcon {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 5px;
+  background: #edf3f1;
+  color: #47776c;
+}
+
+.appAccessKeyIdentity,
+.appAccessKeyDates {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.appAccessKeyIdentity strong,
+.appAccessKeyIdentity code,
+.appAccessKeyDates span,
+.appAccessKeyDates small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appAccessKeyIdentity strong {
+  font-size: 11px;
+}
+
+.appAccessKeyIdentity code {
+  color: var(--text-muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 9px;
+}
+
+.appAccessKeyDates span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.appAccessKeyDates svg {
+  flex: 0 0 12px;
+}
+
+.appAccessKeyDates small,
+.appAccessKeyRevokedAt {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.appAccessKeyStatus {
+  display: inline-flex;
+  width: fit-content;
+  min-width: 50px;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.appAccessKeyStatus-active {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.appAccessKeyStatus-expired {
+  background: #fff4d9;
+  color: #895d18;
+}
+
+.appAccessKeyStatus-revoked {
+  background: #edf0ef;
+  color: var(--text-muted);
+}
+
+.appAccessKeyRow > .iconButton,
+.appAccessKeyRevokedAt {
+  justify-self: end;
+}
+
+.appAccessKeyRevokeConfirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.compactAction {
+  min-height: 29px;
+  gap: 4px;
+  padding: 5px 7px;
+  font-size: 10px;
+}
+
+.appAccessKeyRevokeConfirm .textButton {
+  min-height: 29px;
+  padding-inline: 4px;
+  font-size: 10px;
+}
+
+.appAccessKeySecurityNote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid var(--border);
+  padding: 12px 20px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.appAccessKeySecurityNote svg {
+  flex: 0 0 15px;
+}
+
+@media (max-width: 760px) {
+  .appAccessKeysHeader {
+    padding: 12px 16px;
+  }
+
+  .appAccessKeysBody {
+    max-height: calc(100vh - 74px);
+  }
+
+  .appAccessKeyCreate {
+    grid-template-columns: minmax(0, 1fr) 120px;
+    padding-inline: 16px;
+  }
+
+  .appAccessKeyCreate .primaryButton {
+    grid-column: 1 / -1;
+  }
+
+  .createdAccessKey,
+  .appAccessKeyListSection,
+  .appAccessKeySecurityNote {
+    padding-inline: 16px;
+  }
+
+  .appAccessKeyRow {
+    min-height: 84px;
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    gap: 6px 9px;
+  }
+
+  .appAccessKeyIdentity {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .appAccessKeyStatus {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .appAccessKeyDates {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .appAccessKeyRow > .iconButton,
+  .appAccessKeyRevokedAt {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .appAccessKeyRevokeConfirm {
+    grid-column: 2 / -1;
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 460px) {
+  .appAccessKeyCreate {
+    grid-template-columns: 1fr;
+  }
+
+  .appAccessKeyCreate .primaryButton {
+    grid-column: 1;
+  }
+
+  .createdAccessKey > header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
 }
 
 /* Knowledge-base content health */

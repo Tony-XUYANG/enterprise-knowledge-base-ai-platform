@@ -48,6 +48,9 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | GET | `/api/v1/apps/stats` | Bearer token | Read app status and knowledge-base binding totals |
 | GET | `/api/v1/apps/:appId` | Bearer token | Read one owned app |
 | GET | `/api/v1/apps/:appId/metrics` | Bearer token | Read owner-scoped usage, activity, and model metrics |
+| GET | `/api/v1/apps/:appId/access-keys` | Bearer token | List access-key metadata without secret values |
+| POST | `/api/v1/apps/:appId/access-keys` | Bearer token | Create an expiring app access key and return its secret once |
+| DELETE | `/api/v1/apps/:appId/access-keys/:accessKeyId` | Bearer token | Immediately revoke an app access key |
 | PATCH | `/api/v1/apps/:appId` | Bearer token | Update one owned app |
 | DELETE | `/api/v1/apps/:appId` | Bearer token | Disable one owned app |
 | GET | `/api/v1/knowledge-bases` | Bearer token | List owned knowledge bases |
@@ -83,6 +86,7 @@ All responses use either `{ "data": ... }` or `{ "error": { "code", "message" } 
 | POST | `/api/v1/conversations/:id/messages` | Bearer token | Append a message with the next sequence number |
 | POST | `/api/v1/conversations/:id/generate` | Bearer token | Send a user message to the configured FastGPT app and persist its reply |
 | POST | `/api/v1/conversations/:id/messages/:messageId/retry` | Bearer token | Retry the latest failed assistant reply in place |
+| POST | `/api/v1/external/chat` | App access key | Create or continue a conversation for the key's application |
 
 ## Device sessions
 
@@ -193,6 +197,31 @@ Message preparation locks the owned conversation and writes the user message plu
 The FastGPT key is decrypted only inside the API process and is sent in the upstream `Authorization` header. It is never included in the browser response or stored message metadata. Upstream authentication, rate limiting, invalid responses, network failures, and timeouts use stable `FASTGPT_*` error codes; failed generations remain visible as failed assistant messages for auditability.
 
 FastGPT calls use `FASTGPT_API_BASE_URL` (default `https://api.fastgpt.in/api/v1`) and `FASTGPT_TIMEOUT_MS` (default 30000). The endpoint currently uses non-streaming chat completions.
+
+## Application access keys and external chat
+
+Authenticated owners can create up to 10 unrevoked keys per application. `POST /api/v1/apps/:appId/access-keys` accepts a 1-80 character `name` and `expiresInDays` from 1-365 (default 90). The `kh_app_...` secret is returned only in that creation response. Later list responses expose only its name, prefix, status, creation and expiry times, optional last-use time, and revocation time.
+
+The database stores a unique SHA-256 hash rather than the secret. Revoked and expired keys cannot authenticate. External authentication also requires an active, verified owner account, an active application, and a configured encrypted FastGPT credential. Key lookup, application state, and conversation ownership failures use stable error codes without exposing another application's conversation.
+
+`POST /api/v1/external/chat` accepts a new message plus an optional prior `conversationId`. Without an ID it creates an owned conversation using the optional `title`; with an ID it continues only an active conversation belonging to the same application. Both paths reuse the normal FastGPT generation lock, context window, failure persistence, Token and latency metrics. The external endpoint is limited to 60 requests per minute per source IP.
+
+```powershell
+$headers = @{ Authorization = 'Bearer kh_app_replace_with_created_secret' }
+$body = @{
+  message = '退款审核需要多久？'
+  title = '客服门户咨询'
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri 'http://localhost:3001/api/v1/external/chat' `
+  -Headers $headers `
+  -ContentType 'application/json' `
+  -Body $body
+```
+
+Use the returned `conversationId` in the next request to preserve context. The API never returns the application access key or upstream FastGPT key in chat responses or message metadata.
 
 ## Knowledge-base documents
 
