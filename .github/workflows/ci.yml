@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: knowledgehub
+          POSTGRES_USER: knowledgehub
+          POSTGRES_PASSWORD: knowledgehub_ci_password
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U knowledgehub -d knowledgehub"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://knowledgehub:knowledgehub_ci_password@localhost:5433/knowledgehub
+      JWT_SECRET: knowledgehub-ci-secret-change-me-but-long-enough
+      DATA_ENCRYPTION_KEY: abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd
+      CORS_ORIGIN: http://localhost:3000
+      WEB_BASE_URL: http://localhost:3000
+      SMTP_HOST: localhost
+      SMTP_PORT: 1025
+      SMTP_SECURE: 'false'
+      MAIL_FROM: KnowledgeHub <no-reply@knowledgehub.local>
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run typecheck
+      - run: npm run test:api
+      - run: npm run build:api
+      - run: npm run build:web

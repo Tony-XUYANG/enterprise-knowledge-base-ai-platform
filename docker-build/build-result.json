@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-06T14:05:17+08:00",
+  "phase": "build",
+  "outcome": "success",
+  "complexity_level": "L3",
+  "iterations": [
+    {
+      "iteration": 1,
+      "status": "failed",
+      "error_category": "network",
+      "error_excerpt": "failed to fetch oauth token from auth.docker.io",
+      "fix_applied": "Pulled the same fixed Node base image from the configured local mirror and reused its digest",
+      "duration_seconds": 24
+    },
+    {
+      "iteration": 2,
+      "status": "success",
+      "error_category": null,
+      "error_excerpt": null,
+      "fix_applied": null,
+      "duration_seconds": 479
+    },
+    {
+      "iteration": 3,
+      "status": "success",
+      "error_category": null,
+      "error_excerpt": null,
+      "fix_applied": "Corrected Next.js standalone root layout before the final Web build",
+      "duration_seconds": 22
+    }
+  ],
+  "total_iterations": 3,
+  "max_iterations_allowed": 5,
+  "images": [
+    {
+      "dockerfile": "Dockerfile.api",
+      "image_name": "knowledgehub-api:qa",
+      "image_id": "sha256:208cea4be335564b29a4b2d1a9d40f1df7ad037f0da4016aa051a3b40c0842c",
+      "image_size_mb": 273
+    },
+    {
+      "dockerfile": "Dockerfile.web",
+      "image_name": "knowledgehub-web:qa",
+      "image_id": "sha256:134fd16f765eadf18f07d621113c189810736a347d56107ac1b497a1c0971bf4",
+      "image_size_mb": 110
+    }
+  ],
+  "errors_not_matched": []
+}

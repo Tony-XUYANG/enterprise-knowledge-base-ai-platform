@@ -12,6 +12,7 @@ DECLARE
     visitor_kb_id UUID;
     test_conversation_id UUID;
     external_conversation_id UUID;
+    idempotency_id UUID;
     rejected BOOLEAN;
 BEGIN
     INSERT INTO users (email, password_hash, display_name)
@@ -123,6 +124,36 @@ BEGIN
           FROM external_api_requests
          WHERE conversation_id = external_conversation_id
     ) = 155, '调用日志应保留 Token 指标';
+
+    INSERT INTO external_chat_idempotencies (
+        app_id, owner_id, access_key_id, idempotency_key_hash, request_hash, status
+    ) VALUES (
+        app_id, owner_id, access_key_id, repeat('e', 64), repeat('f', 64), 'pending'
+    ) RETURNING id INTO idempotency_id;
+
+    rejected := FALSE;
+    BEGIN
+        INSERT INTO external_chat_idempotencies (
+            app_id, owner_id, access_key_id, idempotency_key_hash, request_hash, status
+        ) VALUES (
+            app_id, visitor_id, access_key_id, repeat('d', 64), repeat('c', 64), 'pending'
+        );
+    EXCEPTION WHEN foreign_key_violation THEN
+        rejected := TRUE;
+    END;
+    ASSERT rejected, '幂等记录必须继承应用和访问密钥所有权';
+
+    UPDATE external_chat_idempotencies
+       SET status = 'succeeded',
+           response_status = 201,
+           conversation_id = test_conversation_id,
+           conversation_created = FALSE,
+           user_message_id = (SELECT id FROM messages WHERE conversation_id = test_conversation_id AND sequence_no = 1),
+           assistant_message_id = (SELECT id FROM messages WHERE conversation_id = test_conversation_id AND sequence_no = 2)
+     WHERE id = idempotency_id;
+
+    ASSERT (SELECT status FROM external_chat_idempotencies WHERE id = idempotency_id) = 'succeeded',
+        '幂等成功状态应能保存完整消息引用';
 
     RAISE NOTICE '数据库冒烟测试通过：关系、外键、唯一约束均正常。';
 END;

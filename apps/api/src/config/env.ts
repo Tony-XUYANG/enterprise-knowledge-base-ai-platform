@@ -10,6 +10,7 @@ const developmentEncryptionKey =
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().min(1).max(65_535).default(3001),
+  TRUST_PROXY: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   DATABASE_URL: z
     .string()
     .url()
@@ -47,6 +48,9 @@ const envSchema = z.object({
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().min(3).default('KnowledgeHub <no-reply@knowledgehub.local>'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+  DB_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
+  DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(500).max(60_000).default(5_000),
 }).superRefine((value, context) => {
   if (Boolean(value.SMTP_USER) !== Boolean(value.SMTP_PASSWORD)) {
     context.addIssue({
@@ -68,6 +72,33 @@ if (
   parsed.data.DATA_ENCRYPTION_KEY === developmentEncryptionKey
 ) {
   throw new Error('DATA_ENCRYPTION_KEY must be replaced in production');
+}
+
+if (parsed.data.NODE_ENV === 'production') {
+  const productionDefaults = [
+    ['DATABASE_URL', 'postgresql://knowledgehub:knowledgehub_dev_password@localhost:5433/knowledgehub'],
+    ['JWT_SECRET', 'knowledgehub-development-secret-change-me'],
+    ['CORS_ORIGIN', 'http://localhost:3000'],
+    ['WEB_BASE_URL', 'http://localhost:3000'],
+    ['SMTP_HOST', 'localhost'],
+    ['MAIL_FROM', 'KnowledgeHub <no-reply@knowledgehub.local>'],
+  ] as const;
+  for (const [name, developmentValue] of productionDefaults) {
+    const configuredValue = parsed.data[name];
+    if (
+      configuredValue === developmentValue
+      || configuredValue.toLowerCase().includes('change_me')
+      || configuredValue.toLowerCase().includes('replace_with')
+    ) {
+      throw new Error(`${name} must be explicitly configured in production`);
+    }
+  }
+  if (
+    parsed.data.SMTP_USER?.toLowerCase().includes('change_me')
+    || parsed.data.SMTP_PASSWORD?.toLowerCase().includes('change_me')
+  ) {
+    throw new Error('SMTP credentials must be explicitly configured in production');
+  }
 }
 
 export const env = parsed.data;

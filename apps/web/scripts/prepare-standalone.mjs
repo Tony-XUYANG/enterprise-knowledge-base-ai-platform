@@ -8,9 +8,16 @@ const standaloneRoot = fileURLToPath(
 
 function replaceDirectory(source, target) {
   if (!existsSync(source)) return;
-  rmSync(target, { recursive: true, force: true });
   mkdirSync(target, { recursive: true });
-  cpSync(source, target, { recursive: true });
+  try {
+    rmSync(target, { recursive: true, force: true });
+    mkdirSync(target, { recursive: true });
+  } catch (error) {
+    if (!['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(error?.code)) throw error;
+    // A running local standalone server can hold this directory open on Windows.
+    // Existing stale chunks are harmless because Next references files by build ID.
+  }
+  cpSync(source, target, { recursive: true, force: true });
 }
 
 replaceDirectory(

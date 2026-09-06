@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-06T14:05:17+08:00",
+  "phase": "validation",
+  "outcome": "success",
+  "container_startup": {
+    "status": "healthy",
+    "all_containers_up": true,
+    "crash_detected": false
+  },
+  "migration": {
+    "applicable": true,
+    "migration": "020_add_external_chat_idempotency",
+    "tables_verified": ["users", "ai_apps", "app_access_keys", "external_api_requests", "external_chat_idempotencies"],
+    "status": "success"
+  },
+  "http_health": {
+    "api_live_code": 200,
+    "api_ready_code": 200,
+    "web_login_code": 200,
+    "acceptable": true
+  },
+  "runtime_security": {
+    "api_uid": 1000,
+    "web_uid": 1000,
+    "read_only_root_filesystem": true,
+    "no_new_privileges": true
+  },
+  "log_analysis": {
+    "critical_errors": [],
+    "warnings": []
+  },
+  "checklist": {
+    "image_built": true,
+    "container_started": true,
+    "database_connected": true,
+    "migrations_executed": true,
+    "tables_created": true,
+    "http_valid_response": true,
+    "no_runtime_errors": true,
+    "healthcheck_passed": true
+  },
+  "summary": "API and Web production images built and ran healthy with migrations, probes, non-root users, and no runtime errors."
+}

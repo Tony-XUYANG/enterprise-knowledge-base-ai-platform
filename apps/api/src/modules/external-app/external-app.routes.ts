@@ -5,6 +5,12 @@ import { AppError } from '../../errors/app-error.js';
 import { authenticateAppAccessKey } from '../../middleware/authenticate-app-access-key.js';
 import { recordExternalApiRequest } from '../apps/external-api-requests.service.js';
 import { externalAppChatSchema } from './external-app.schemas.js';
+import { externalIdempotencyKeySchema } from './external-chat-idempotency.schemas.js';
+import {
+  claimExternalChatIdempotency,
+  completeExternalChatIdempotency,
+  failExternalChatIdempotency,
+} from './external-chat-idempotency.service.js';
 import { executeExternalAppChat } from './external-app.service.js';
 
 export const externalAppRouter = Router();
@@ -34,12 +40,33 @@ externalAppRouter.post(
     }
     const startedAt = Date.now();
     let requestedConversationId: string | null = null;
+    let idempotencyId: string | null = null;
 
     try {
       const input = externalAppChatSchema.parse(request.body);
+      const idempotencyHeader = request.header('idempotency-key');
+      const idempotencyKey = idempotencyHeader
+        ? externalIdempotencyKeySchema.parse(idempotencyHeader)
+        : null;
+      if (idempotencyKey) {
+        const claim = await claimExternalChatIdempotency(request.appAccess, input, idempotencyKey);
+        if (claim.kind === 'in_progress') {
+          throw new AppError(409, 'IDEMPOTENCY_IN_PROGRESS', '相同幂等请求正在处理中，请稍后重试');
+        }
+        if (claim.kind === 'replay') {
+          response.status(201).json({ data: claim.data });
+          return;
+        }
+        idempotencyId = claim.id;
+      }
       const data = await executeExternalAppChat(request.appAccess, input, (conversationId) => {
         requestedConversationId = conversationId;
       });
+      if (idempotencyId) {
+        await completeExternalChatIdempotency(idempotencyId, data).catch((idempotencyError: unknown) => {
+          request.log.error({ err: idempotencyError }, 'Failed to persist external idempotency result');
+        });
+      }
       await recordExternalApiRequest({
         access: request.appAccess,
         conversationId: data.conversationId,
@@ -66,6 +93,23 @@ externalAppRouter.post(
         : error instanceof ZodError
           ? 'VALIDATION_ERROR'
           : 'INTERNAL_SERVER_ERROR';
+      if (idempotencyId) {
+        await failExternalChatIdempotency(
+          idempotencyId,
+          {
+            status,
+            code: errorCode,
+            message: error instanceof AppError
+              ? error.message
+              : error instanceof ZodError
+                ? '请求参数不合法'
+                : '服务暂时不可用，请稍后重试',
+          },
+          requestedConversationId,
+        ).catch((idempotencyError: unknown) => {
+          request.log.error({ err: idempotencyError }, 'Failed to persist external idempotency failure');
+        });
+      }
       await recordExternalApiRequest({
         access: request.appAccess,
         conversationId: requestedConversationId,

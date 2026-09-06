@@ -206,6 +206,8 @@ The database stores a unique SHA-256 hash rather than the secret. Revoked and ex
 
 `POST /api/v1/external/chat` accepts a new message plus an optional prior `conversationId`. Without an ID it creates an owned conversation using the optional `title`; with an ID it continues only an active conversation belonging to the same application. Both paths reuse the normal FastGPT generation lock, context window, failure persistence, Token and latency metrics. The external endpoint is limited to 60 requests per minute per source IP.
 
+Clients should send a unique `Idempotency-Key` header (1-128 printable ASCII characters) for requests that may be retried after a network timeout. The key is scoped to the application access key and retained for 24 hours. A completed request replays the same persisted message result without another FastGPT call; a different request body with the same key returns `409 IDEMPOTENCY_KEY_REUSED`, and a concurrent duplicate returns `409 IDEMPOTENCY_IN_PROGRESS`. Idempotency records store only request/key hashes and message references, never request or response content.
+
 ```powershell
 $headers = @{ Authorization = 'Bearer kh_app_replace_with_created_secret' }
 $body = @{
@@ -222,6 +224,10 @@ Invoke-RestMethod `
 ```
 
 Use the returned `conversationId` in the next request to preserve context. The API never returns the application access key or upstream FastGPT key in chat responses or message metadata.
+
+## Health endpoints
+
+`GET /health/live` is a database-free liveness probe. `GET /health/ready` checks PostgreSQL and returns `503 DATABASE_UNAVAILABLE` when the API cannot reach the database. `GET /health` remains an alias for readiness for existing monitors.
 
 `GET /api/v1/apps/:appId/external-requests` returns the authenticated owner's external-call observability data. It accepts `page`, `pageSize`, `range=24h|7d|30d|90d`, optional `outcome=success|failure`, and optional `accessKeyId`. The response contains the filtered page plus a range summary with total calls, successes, failures, success rate, average post-authentication request latency, and prompt/completion Token totals. The summary honors the range and key filters but intentionally ignores the outcome filter so the success/failure comparison remains meaningful.
 

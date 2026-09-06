@@ -5,11 +5,19 @@ import { generateConversationReply } from '../conversations/conversation-generat
 import { createConversation } from '../conversations/conversations.service.js';
 import type { ExternalAppChatInput } from './external-app.schemas.js';
 
+export interface ExternalAppChatResult {
+  appId: string;
+  conversationId: string;
+  conversationCreated: boolean;
+  userMessage: Awaited<ReturnType<typeof generateConversationReply>>['userMessage'];
+  assistantMessage: Awaited<ReturnType<typeof generateConversationReply>>['assistantMessage'];
+}
+
 export async function executeExternalAppChat(
   access: AppAccessContext,
   input: ExternalAppChatInput,
   onConversationResolved?: (conversationId: string) => void,
-) {
+): Promise<ExternalAppChatResult> {
   let conversationId = input.conversationId;
   let created = false;
 

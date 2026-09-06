@@ -22,11 +22,14 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
+  app.set('trust proxy', env.TRUST_PROXY);
   app.use(
     pinoHttp({
       level: env.LOG_LEVEL,
       redact: [
         'req.headers.authorization',
+        'req.headers.cookie',
+        'req.headers.idempotency-key',
         'req.body.password',
         'req.body.currentPassword',
         'req.body.newPassword',
@@ -35,6 +38,7 @@ export function createApp() {
         'req.body.mfaToken',
         'req.body.refreshToken',
         'req.body.fastgptApiKey',
+        'req.body.message',
       ],
     }),
   );
@@ -42,16 +46,37 @@ export function createApp() {
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '4mb' }));
 
-  app.get('/health', async (_request, response) => {
-    await query('SELECT 1');
+  app.get('/health/live', (_request, response) => {
     response.json({
       data: {
         status: 'ok',
-        database: 'connected',
         timestamp: new Date().toISOString(),
       },
     });
   });
+
+  const readinessHandler = async (_request: express.Request, response: express.Response) => {
+    try {
+      await query('SELECT 1');
+      response.json({
+        data: {
+          status: 'ok',
+          database: 'connected',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch {
+      response.status(503).json({
+        error: {
+          code: 'DATABASE_UNAVAILABLE',
+          message: '数据库暂时不可用',
+        },
+      });
+    }
+  };
+
+  app.get('/health/ready', readinessHandler);
+  app.get('/health', readinessHandler);
 
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/admin/audit-events', adminAuditRouter);

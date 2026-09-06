@@ -64,6 +64,13 @@ describe('application access keys and external chat API', () => {
   });
 
   it('manages hashed keys and isolates external conversations by application', async () => {
+    const liveHealth = await request(app).get('/health/live');
+    expect(liveHealth.status).toBe(200);
+    expect(liveHealth.body.data.status).toBe('ok');
+    const readyHealth = await request(app).get('/health/ready');
+    expect(readyHealth.status).toBe(200);
+    expect(readyHealth.body.data.database).toBe('connected');
+
     const ownerAccessToken = await registerAndLogin(ownerEmail, '密钥所有者');
     const outsiderAccessToken = await registerAndLogin(outsiderEmail, '外部成员');
 
@@ -261,6 +268,44 @@ describe('application access keys and external chat API', () => {
     expect(continuedFastGptBody?.messages).toHaveLength(3);
     fastGptFetch.mockRestore();
 
+    const idempotentFastGptFetch = vi.spyOn(globalThis, 'fetch');
+    idempotentFastGptFetch.mockImplementationOnce(async (_url, init) => {
+      expect(new Headers(init?.headers).get('Authorization')).toBe(`Bearer ${upstreamSecret}`);
+      return new Response(JSON.stringify({
+        id: 'external-message-idempotent',
+        model: 'external-test-model',
+        choices: [{ message: { content: '发票可以在订单完成后申请。' } }],
+        usage: { prompt_tokens: 9, completion_tokens: 4 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    const idempotencyKey = 'portal-refund-request-20260906-01';
+    const firstIdempotentChat = await request(app)
+      .post('/api/v1/external/chat')
+      .set('Authorization', `Bearer ${accessKeySecret}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ message: '如何申请发票？', title: '发票咨询' });
+    expect(firstIdempotentChat.status).toBe(201);
+    expect(firstIdempotentChat.body.data.assistantMessage.content).toBe('发票可以在订单完成后申请。');
+
+    const replayedIdempotentChat = await request(app)
+      .post('/api/v1/external/chat')
+      .set('Authorization', `Bearer ${accessKeySecret}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ message: '如何申请发票？', title: '发票咨询' });
+    expect(replayedIdempotentChat.status).toBe(201);
+    expect(replayedIdempotentChat.body.data).toEqual(firstIdempotentChat.body.data);
+    expect(idempotentFastGptFetch).toHaveBeenCalledTimes(1);
+
+    const reusedIdempotencyKey = await request(app)
+      .post('/api/v1/external/chat')
+      .set('Authorization', `Bearer ${accessKeySecret}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ message: '这是另一条请求，不应复用旧结果', title: '发票咨询' });
+    expect(reusedIdempotencyKey.status).toBe(409);
+    expect(reusedIdempotencyKey.body.error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    idempotentFastGptFetch.mockRestore();
+
     const invalidExternalChat = await request(app)
       .post('/api/v1/external/chat')
       .set('Authorization', `Bearer ${accessKeySecret}`)
@@ -285,16 +330,16 @@ describe('application access keys and external chat API', () => {
     expect(requestLogResponse.body.data).toMatchObject({
       page: 1,
       pageSize: 1,
-      total: 3,
+      total: 5,
       range: '24h',
       summary: {
-        calls: 3,
-        successes: 2,
-        failures: 1,
-        successRate: 66.7,
-        promptTokens: 58,
-        completionTokens: 32,
-        totalTokens: 90,
+        calls: 5,
+        successes: 3,
+        failures: 2,
+        successRate: 60,
+        promptTokens: 67,
+        completionTokens: 36,
+        totalTokens: 103,
       },
     });
     expect(requestLogResponse.body.data.items).toHaveLength(1);
@@ -319,8 +364,8 @@ describe('application access keys and external chat API', () => {
       .query({ range: '7d', outcome: 'success', accessKeyId, pageSize: 20 })
       .set('Authorization', `Bearer ${ownerAccessToken}`);
     expect(successfulRequestLog.status).toBe(200);
-    expect(successfulRequestLog.body.data.total).toBe(2);
-    expect(successfulRequestLog.body.data.items).toHaveLength(2);
+    expect(successfulRequestLog.body.data.total).toBe(3);
+    expect(successfulRequestLog.body.data.items).toHaveLength(3);
     expect(successfulRequestLog.body.data.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         conversationId: externalConversationId,
