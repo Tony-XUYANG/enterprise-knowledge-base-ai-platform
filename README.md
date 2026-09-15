@@ -2,6 +2,8 @@
 
 面向 FastGPT 全栈岗位训练的企业知识库 AI 平台。项目已包含 PostgreSQL 数据模型、Node.js API 和 Next.js 管理工作台。
 
+可直接转发的项目介绍：本项目使用 PostgreSQL、Node.js 和 Next.js，实现企业知识库管理与 AI 智能问答。
+
 ## 环境要求
 
 - Docker Desktop
